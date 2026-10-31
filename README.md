@@ -68,7 +68,7 @@ O AP de emergência usa o SSID `Hidroponia-ESP32`, senha privada definida como `
 ### Gravação
 
 1. Mantenha `TomadaHidroponia.ino` e `HydroSecrets.h` na mesma pasta e abra o `.ino` no Arduino IDE.
-2. Selecione **ESP32 Dev Module**, porta serial correta e velocidade 115200.
+2. Selecione **ESP32 Dev Module**, partição **Huge APP (3MB No OTA/1MB SPIFFS)**, porta serial correta e velocidade 115200. O painel local + BLE + TLS ocupa cerca de 1,88 MB e não cabe na partição padrão de 1,2 MB.
 3. Compile e carregue por USB. Se a gravação ficar em `Connecting`, segure `BOOT` até iniciar.
 4. Abra o Monitor Serial a 115200. O firmware não imprime senhas. Após 30 s sem conexão Wi-Fi, inicia o AP de emergência e mantém as tentativas de reconexão.
 5. Na rede normal, use o IP anunciado no Monitor Serial. No AP, conecte o celular à rede e abra `http://192.168.4.1`.

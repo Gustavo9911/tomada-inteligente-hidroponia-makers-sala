@@ -43,7 +43,7 @@ A carga da bomba deve passar pelos contatos `COM` e `NO` do relé, de forma que 
 
 1. Faça uma cópia de segurança dos dois arquivos (`.ino` e `HydroSecrets.h`).
 2. Abra `TomadaHidroponia.ino` no Arduino IDE. Confirme que o arquivo privado foi localizado na mesma pasta.
-3. Em **Ferramentas → Placa**, escolha **ESP32 Dev Module**. Conecte a placa com cabo USB de dados e selecione a porta serial correspondente.
+3. Em **Ferramentas → Placa**, escolha **ESP32 Dev Module**. Em **Partition Scheme/Esquema de partição**, selecione **Huge APP (3MB No OTA/1MB SPIFFS)**. O firmware completo ocupa cerca de 1,88 MB e não cabe na partição padrão de 1,2 MB; a opção Huge APP é necessária. Ela reserva espaço maior para o programa e não oferece atualização OTA (a gravação é por USB). Conecte a placa com cabo USB de dados e selecione a porta serial correspondente.
 4. Instale as bibliotecas indicadas na seção 2. Clique em **Verificar** para compilar.
 5. Com a bomba desenergizada, clique em **Carregar**. Se aparecer `Connecting...`, pressione e mantenha `BOOT` até a gravação começar; solte depois.
 6. Abra o **Monitor Serial** em `115200 baud` e pressione `EN/RESET`. Não compartilhe registros que possam expor dados privados.
