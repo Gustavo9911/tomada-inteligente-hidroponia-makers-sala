@@ -97,6 +97,7 @@ const bool RELAY_ACTIVE_LOW = true;
 // ============================================================
 
 struct ScheduleSlot {
+  bool used;
   bool enabled;
   uint8_t startHour;
   uint8_t startMinute;
@@ -217,6 +218,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 @media(max-width:430px){.sidebar{position:fixed;inset:auto 0 0;width:auto;height:61px;padding:4px 8px;background:#090f25f5;border:0;border-top:1px solid #23345e}.brand,.side-status{display:none}.side-nav{padding:0;display:flex;justify-content:space-around;align-items:center;height:100%}.side-nav a{flex:1;height:48px;border-radius:8px}.workspace{margin:0;padding:0 9px 82px}.topbar{margin-bottom:12px}.grid{gap:7px}.pump-card,.metric-card{min-height:164px;padding:11px}.metric-value{font-size:1.48rem;margin-top:13px}.metric-label{font-size:.63rem}.section-title h2{font-size:.94rem}.schedule{grid-template-columns:minmax(84px,1fr) minmax(63px,.8fr) 10px minmax(63px,.8fr);gap:3px}.schedule label{font-size:.55rem}.schedule input[type=time]{font-size:.53rem;height:26px}.footer{font-size:.5rem;flex-direction:column;gap:5px}}
 
 .schedule-head{display:grid;grid-template-columns:minmax(105px,1fr) minmax(85px,.8fr) 18px minmax(85px,.8fr);gap:8px;padding:0 6px 7px;color:#7c8db4;font:.56rem monospace;text-transform:uppercase;letter-spacing:.08em}.metric-value.ok{color:var(--green)}.metric-value.danger{color:var(--red)}
+.schedule-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;margin:0 0 10px;color:var(--muted);font-size:.7rem}.add-slot{border:1px solid #344a7a;border-radius:9px;background:#121f42;color:#dce7ff;padding:9px 12px;font-weight:700;cursor:pointer}.add-slot:disabled{opacity:.5;cursor:not-allowed}.schedule-head,.schedule{grid-template-columns:minmax(105px,1fr) 52px minmax(78px,.8fr) 16px minmax(78px,.8fr) 30px}.schedule{display:grid;align-items:center;gap:7px;padding:7px 6px;border-top:1px solid #202f56}.schedule label{display:flex;align-items:center;gap:6px;color:#d0dbf5;font-size:.68rem}.schedule-toggle{justify-content:center}.schedule-toggle input{accent-color:var(--purple);width:16px;height:16px;margin:0}.schedule input[type=time]{width:100%;min-width:0;height:32px;padding:3px 5px;border:1px solid #2a3b66;border-radius:7px;background:#091128;color:#e4ebff;color-scheme:dark}.remove-slot{width:28px;height:28px;border:1px solid #58344e;border-radius:8px;background:#26162a;color:#ff91a9;font-size:1.15rem;cursor:pointer}.schedule-status{color:var(--muted);font-size:.68rem;margin:10px 0}.schedule-status.error{color:#ff91a9}.schedule-empty{padding:13px;border:1px dashed #293b63;border-radius:9px;text-align:center;color:var(--muted);font-size:.7rem}
+@media(max-width:760px){.schedule-head,.schedule{grid-template-columns:minmax(62px,.8fr) 38px minmax(65px,1fr) 12px minmax(65px,1fr) 26px;gap:3px}.schedule-head{font-size:.48rem}.schedule{padding-inline:1px}.schedule label{font-size:.55rem}.schedule-toggle{font-size:0;justify-content:center}.schedule-toggle input{width:15px;height:15px}.schedule input[type=time]{font-size:.57rem;padding:2px;height:28px}.remove-slot{width:24px;height:24px}.schedule-toolbar{align-items:stretch;flex-direction:column}.add-slot{width:100%}}
 </style>
 </head>
 <body>
@@ -239,7 +242,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   <article class="card metric-card"><span class="metric-label"><i class="metric-icon">≋</i> Nível da água</span><strong id="level" class="metric-value">--</strong><small class="metric-foot">Reservatório · chave boia</small></article>
 </section>
 <div class="schedule-stats">
-  <section class="card section-link" id="schedule"><div class="section-title"><div><p class="eyebrow">AUTOMAÇÃO LOCAL</p><h2>Horários automáticos</h2><p>Os períodos continuam ativos sem o painel aberto.</p></div><span class="section-mark">◷</span></div><div class="schedule-head"><span>Período</span><span>Ligar</span><span></span><span>Desligar</span></div><div id="schedules"></div><button class="schedule-save btn-auto" onclick="saveSchedules()">▣&nbsp; Salvar horários</button></section>
+  <section class="card section-link" id="schedule"><div class="section-title"><div><p class="eyebrow">AUTOMAÇÃO LOCAL</p><h2>Horários automáticos</h2><p>Adicione até oito períodos; a agenda continua ativa sem o painel aberto.</p></div><span class="section-mark">◷</span></div><div class="schedule-toolbar"><span id="slotCount">0 de 8 horários</span><button id="addSlot" class="add-slot" type="button" onclick="addSchedule()">＋ Adicionar horário</button></div><div class="schedule-head"><span>Período</span><span>Ativo</span><span>Ligar</span><span></span><span>Desligar</span><span></span></div><div id="schedules"></div><div id="scheduleStatus" class="schedule-status">Adicione um horário para começar.</div><button id="saveSchedulesButton" class="schedule-save btn-auto" onclick="saveSchedules()">▣&nbsp; Salvar horários</button></section>
   <section class="card stats section-link" id="stats"><div class="section-title"><div><p class="eyebrow">RESUMO DE OPERAÇÃO</p><h2>Estatísticas e conexão</h2></div><span class="section-mark">▥</span></div><p><span>◉</span>Ciclos da bomba<strong id="cycles">--</strong></p><p><span>◷</span>Tempo total ligado<strong id="total">--</strong></p><p><span>▦</span>Horário atual<strong id="now">--</strong></p><p><span>◎</span>IP do dispositivo<strong id="ip">--</strong></p><div class="diagnostic-lines" id="connections"><p>Wi-Fi / AP<strong id="wifi">--</strong></p><p>Intensidade<strong id="rssi">--</strong></p><p>Bluetooth LE<strong id="ble">--</strong></p><p>Serviço remoto<strong id="cloud">--</strong></p><p>Horário NTP<strong id="ntp">--</strong></p></div></section>
 </div>
 <section class="card section-link" id="history-panel" style="margin-top:12px"><div class="section-title"><div><p class="eyebrow">REGISTROS DO DISPOSITIVO</p><h2>Histórico de eventos</h2></div><span class="section-mark">▤</span></div><div id="history" class="history">Carregando…</div></section>
@@ -296,84 +299,74 @@ async function control(action) {
 }
 
 async function saveSchedules() {
-  try {
   const body = new URLSearchParams();
-
+  const rows = [...document.querySelectorAll("#schedules .schedule")];
+  if (rows.length > 8) { toast("O limite é de 8 horários.", true); return; }
+  body.append("scheduleV2", "1");
   for (let i = 0; i < 8; i++) {
-
-    const enabled =
-      document.getElementById("en" + i).checked;
-
-    const on =
-      document.getElementById("on" + i).value;
-
-    const off =
-      document.getElementById("off" + i).value;
-
-    if (enabled) {
-      body.append("en" + i, "1");
-    }
-
-    body.append("on" + i, on);
-    body.append("off" + i, off);
+    const row = rows[i];
+    const used = Boolean(row);
+    const enabled = used && row.querySelector(`#en${i}`).checked;
+    const on = used ? row.querySelector(`#on${i}`).value : "00:00";
+    const off = used ? row.querySelector(`#off${i}`).value : "00:00";
+    if (used && (!on || !off || on === off)) { toast("Cada horário precisa ter uma hora válida para ligar e outra diferente para desligar.", true); return; }
+    body.append("used" + i, used ? "1" : "0");
+    if (enabled) body.append("en" + i, "1");
+    body.append("on" + i, on); body.append("off" + i, off);
   }
-
-  const result = await api("/api/schedules", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body
-  });
-
-  if (result && result.ok) { schedulesDirty = false; toast("Horários gravados no ESP32."); }
-  else if (result) toast(result.error || "Falha ao gravar os horários.", true);
-  update();
+  try {
+    const button = document.getElementById("saveSchedulesButton"); button.disabled = true;
+    document.getElementById("scheduleStatus").textContent = "Salvando horários…";
+    const result = await api("/api/schedules", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+    if (result && result.ok) { schedulesDirty = false; document.getElementById("scheduleStatus").textContent = "Horários gravados no ESP32."; toast("Horários gravados no ESP32."); }
+    else if (result) toast(result.error || "Falha ao gravar os horários.", true);
+    update();
+    button.disabled = false;
   } catch (error) { toast("Não foi possível salvar os horários.", true); }
 }
 
-function renderSchedules(slots) {
+function readScheduleRows() {
+  return [...document.querySelectorAll("#schedules .schedule")].map((row, i) => ({
+    used: true, enabled: row.querySelector(`#en${i}`).checked,
+    start: row.querySelector(`#on${i}`).value, stop: row.querySelector(`#off${i}`).value
+  }));
+}
 
+function markScheduleDirty() {
+  schedulesDirty = true;
+  document.getElementById("scheduleStatus").textContent = "Alterações não salvas";
+}
+
+function addSchedule() {
+  const slots = readScheduleRows();
+  if (slots.length >= 8) return;
+  slots.push({ used: true, enabled: false, start: "08:00", stop: "08:15" });
+  renderSchedules(slots); markScheduleDirty();
+}
+
+function renderSchedules(slots) {
   const container =
     document.getElementById("schedules");
-
   container.innerHTML = "";
-
-  slots.forEach((slot, i) => {
-
+  const configured = (slots || []).map(slot => {
+    const enabled = Boolean(slot.enabled ?? slot.en);
+    const start = slot.start || slot.on || "00:00";
+    const stop = slot.stop || slot.off || "00:00";
+    const used = typeof slot.used === "boolean" ? slot.used : (enabled || start !== "08:00" || stop !== "08:15");
+    return { used, enabled, start, stop };
+  }).filter(slot => slot.used).slice(0, 8);
+  configured.forEach((slot, i) => {
     const row =
       document.createElement("div");
-
     row.className = "schedule";
-
-    row.innerHTML = `
-      <label>
-        <input
-          type="checkbox"
-          id="en${i}"
-          ${slot.en ? "checked" : ""}
-        >
-        Período ${String(i + 1).padStart(2, "0")}
-      </label>
-
-      <input
-        type="time"
-        id="on${i}"
-        value="${slot.on}"
-      >
-
-      <span class="schedule-arrow" aria-hidden="true">→</span>
-
-      <input
-        type="time"
-        id="off${i}"
-        value="${slot.off}"
-      >
-    `;
-
+    row.innerHTML = `<label>Período ${String(i + 1).padStart(2, "0")}</label><label class="schedule-toggle"><input type="checkbox" id="en${i}" ${slot.enabled ? "checked" : ""}> Ativo</label><input type="time" id="on${i}" value="${slot.start}" required aria-label="Horário para ligar"><span class="schedule-arrow" aria-hidden="true">→</span><input type="time" id="off${i}" value="${slot.stop}" required aria-label="Horário para desligar"><button type="button" class="remove-slot" aria-label="Remover horário">×</button>`;
+    row.querySelectorAll("input").forEach(input => input.addEventListener("input", markScheduleDirty));
+    row.querySelector(".remove-slot").addEventListener("click", () => { const current = readScheduleRows(); current.splice(i, 1); renderSchedules(current); markScheduleDirty(); });
     container.appendChild(row);
-    row.querySelectorAll("input").forEach(input => input.addEventListener("input", () => { schedulesDirty = true; }));
   });
+  if (!configured.length) { const empty = document.createElement("div"); empty.className = "schedule-empty"; empty.textContent = "Nenhum horário cadastrado. Toque em Adicionar horário."; container.appendChild(empty); }
+  document.getElementById("slotCount").textContent = `${configured.length} de 8 horários`;
+  document.getElementById("addSlot").disabled = configured.length >= 8;
 }
 
 async function update() {
@@ -828,6 +821,11 @@ void saveSlots() {
       "slot" + String(i);
 
     preferences.putBool(
+      (key + "us").c_str(),
+      slots[i].used
+    );
+
+    preferences.putBool(
       (key + "en").c_str(),
       slots[i].enabled
     );
@@ -872,6 +870,8 @@ void loadConfiguration() {
     String key =
       "slot" + String(i);
 
+    const bool hasSavedTimes = preferences.isKey((key + "sh").c_str());
+
     slots[i].enabled =
       preferences.getBool(
         (key + "en").c_str(),
@@ -881,7 +881,7 @@ void loadConfiguration() {
     slots[i].startHour =
       preferences.getUChar(
         (key + "sh").c_str(),
-        8
+        0
       );
 
     slots[i].startMinute =
@@ -893,14 +893,25 @@ void loadConfiguration() {
     slots[i].stopHour =
       preferences.getUChar(
         (key + "eh").c_str(),
-        8
+        0
       );
 
     slots[i].stopMinute =
       preferences.getUChar(
         (key + "em").c_str(),
-        15
+        0
       );
+
+    // Migra a configuração antiga: horários ativos permanecem; os oito
+    // valores padrão antigos passam a representar slots ainda vazios.
+    if (preferences.isKey((key + "us").c_str())) {
+      slots[i].used = preferences.getBool((key + "us").c_str(), false);
+    } else {
+      const bool oldDefault = hasSavedTimes &&
+        slots[i].startHour == 8 && slots[i].startMinute == 0 &&
+        slots[i].stopHour == 8 && slots[i].stopMinute == 15;
+      slots[i].used = slots[i].enabled || (hasSavedTimes && !oldDefault);
+    }
   }
 
   pumpCycles = preferences.getUInt("cycles", 0);
@@ -1034,7 +1045,7 @@ bool scheduleWantsPump() {
        i < SLOT_COUNT;
        i++) {
 
-    if (!slots[i].enabled) {
+    if (!slots[i].used || !slots[i].enabled) {
       continue;
     }
 
@@ -1669,13 +1680,10 @@ void handleStatus() {
       json += ',';
     }
 
-    json +=
-      F("{\"en\":");
-
-    json +=
-      slots[i].enabled
-        ? F("true")
-        : F("false");
+    json += F("{\"used\":");
+    json += slots[i].used ? F("true") : F("false");
+    json += F(",\"en\":");
+    json += slots[i].enabled ? F("true") : F("false");
 
     json +=
       F(",\"on\":");
@@ -1819,6 +1827,8 @@ void handleSchedules() {
     sizeof(slots)
   );
 
+  const bool scheduleV2 = server.hasArg("scheduleV2");
+
   for (
     uint8_t i = 0;
     i < SLOT_COUNT;
@@ -1862,8 +1872,12 @@ void handleSchedules() {
       return;
     }
 
-    candidate[i].enabled =
-      server.hasArg(enKey);
+    String usedKey = "used" + String(i);
+    const bool legacyUsed = server.hasArg(enKey) || h1 != h2 || m1 != m2;
+    candidate[i].used = scheduleV2
+      ? server.arg(usedKey) == "1"
+      : legacyUsed;
+    candidate[i].enabled = candidate[i].used && server.hasArg(enKey);
 
     candidate[i].startHour =
       h1;
@@ -1876,6 +1890,11 @@ void handleSchedules() {
 
     candidate[i].stopMinute =
       m2;
+
+    if (candidate[i].used && h1 == h2 && m1 == m2) {
+      server.send(400, "application/json", "{\"ok\":false,\"error\":\"Ligar e desligar precisam ser horários diferentes\"}");
+      return;
+    }
   }
 
   memcpy(
@@ -1937,8 +1956,10 @@ bool processAction(const char* action, JsonVariantConst payload, String& error) 
     for (uint8_t i = 0; i < SLOT_COUNT; ++i) {
       JsonObjectConst item = payload[i].as<JsonObjectConst>();
       uint8_t sh, sm, eh, em;
-      if (!item["enabled"].is<bool>() || !parseHHMM(item["start"].as<String>(), sh, sm) || !parseHHMM(item["stop"].as<String>(), eh, em)) { error = "Formato de horario invalido"; return false; }
-      candidate[i] = {item["enabled"].as<bool>(), sh, sm, eh, em};
+      if (!item["enabled"].is<bool>() || (item.containsKey("used") && !item["used"].is<bool>()) || !parseHHMM(item["start"].as<String>(), sh, sm) || !parseHHMM(item["stop"].as<String>(), eh, em)) { error = "Formato de horario invalido"; return false; }
+      const bool used = item["used"].is<bool>() ? item["used"].as<bool>() : item["enabled"].as<bool>();
+      if (used && sh == eh && sm == em) { error = "Os horarios para ligar e desligar precisam ser diferentes"; return false; }
+      candidate[i] = {used, used && item["enabled"].as<bool>(), sh, sm, eh, em};
     }
     memcpy(slots, candidate, sizeof(slots)); saveSlots(); addHistory("Programacao atualizada");
   } else { error = "Comando desconhecido"; return false; }
@@ -1990,7 +2011,7 @@ String buildStatusJson() {
   doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0; doc["timeSynced"] = timeIsValid(); doc["now"] = currentTimeText(); doc["cloud"] = cloudOnline; doc["ble"] = bleConnected;
   // Agenda em tuplas compactas para caber no limite de atributo GATT.
   JsonArray schedule = doc.createNestedArray("slots");
-  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonArray s = schedule.createNestedArray(); s.add(slots[i].enabled); s.add(slotTime(slots[i].startHour, slots[i].startMinute)); s.add(slotTime(slots[i].stopHour, slots[i].stopMinute)); }
+  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonArray s = schedule.createNestedArray(); s.add(slots[i].used); s.add(slots[i].enabled); s.add(slotTime(slots[i].startHour, slots[i].startMinute)); s.add(slotTime(slots[i].stopHour, slots[i].stopMinute)); }
   String output; serializeJson(doc, output); return output;
 }
 
@@ -2045,7 +2066,7 @@ String buildTelemetryJson() {
   doc["wifi"] = WiFi.status() == WL_CONNECTED; doc["apMode"] = apMode; doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
   doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0; doc["timeSynced"] = timeIsValid(); doc["now"] = currentTimeText();
   JsonArray schedule = doc.createNestedArray("slots");
-  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonObject s = schedule.createNestedObject(); s["enabled"] = slots[i].enabled; s["start"] = slotTime(slots[i].startHour, slots[i].startMinute); s["stop"] = slotTime(slots[i].stopHour, slots[i].stopMinute); }
+  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonObject s = schedule.createNestedObject(); s["used"] = slots[i].used; s["enabled"] = slots[i].enabled; s["start"] = slotTime(slots[i].startHour, slots[i].startMinute); s["stop"] = slotTime(slots[i].stopHour, slots[i].stopMinute); }
   JsonArray events = doc.createNestedArray("history"); const uint8_t first = historyCount < HISTORY_SIZE ? 0 : historyHead;
   for (uint8_t i = 0; i < historyCount; ++i) { const HistoryEvent& event = history[(first + i) % HISTORY_SIZE]; JsonObject e = events.createNestedObject(); e["time"] = eventTime(event); e["text"] = event.text; }
   String body; serializeJson(doc, body); return body;

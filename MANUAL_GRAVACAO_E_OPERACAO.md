@@ -86,10 +86,11 @@ O ESP32 envia telemetria e consulta comandos pela internet. A nuvem não energiz
 5. Retorne a boia ao nível normal e confira se o status só muda após o debounce.
 6. Cadastre uma janela de horário próxima e confirme que ela permanece após reiniciar a ESP32. Feche o navegador e observe a automação continuar.
 7. Teste `LIGAR`, `DESLIGAR` e `AUTOMÁTICO`; o modo manual deve expirar depois de 30 minutos.
-8. Teste o BLE e confirme o retorno do estado/acknowledgment.
-9. Conecte a rede com internet e confira o indicador online no painel Vercel após telemetria real. Envie primeiro `DESLIGAR` e confirme o retorno da placa.
-10. Desconecte o Wi-Fi e confirme que o controle local continua ativo; o remoto deve indicar dado desatualizado/offline.
-11. Após a revisão da caixa e da instalação por profissional habilitado, faça o teste final da bomba em água e sob supervisão. Nunca deixe a bomba operar fora da água se o modelo não permitir.
+8. Na seção de horários, toque em **Adicionar horário**, informe **Ligar** e **Desligar**, deixe **Ativo** marcado e salve. Adicione/desative/remova linhas e confirme o limite de oito; após reiniciar, a programação gravada deve continuar. Pela nuvem, confirme na tela que a agenda foi aplicada pela ESP32.
+9. Teste o BLE e confirme o retorno do estado/acknowledgment.
+10. Conecte a rede com internet e confira o indicador online no painel Vercel após telemetria real. Envie primeiro `DESLIGAR` e confirme o retorno da placa.
+11. Desconecte o Wi-Fi e confirme que o controle local continua ativo; o remoto deve indicar dado desatualizado/offline.
+12. Após a revisão da caixa e da instalação por profissional habilitado, faça o teste final da bomba em água e sob supervisão. Nunca deixe a bomba operar fora da água se o modelo não permitir.
 
 ## 9. Solução de problemas
 

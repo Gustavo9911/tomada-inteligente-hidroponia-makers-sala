@@ -31,6 +31,10 @@ flowchart LR
 
 O ESP32 permanece como autoridade do estado físico. A agenda e a proteção funcionam sem navegador, Bluetooth, internet, Vercel ou Supabase. A nuvem entrega comandos com validade curta; o dispositivo confirma recebimento e resultado. A interface não transforma o simples registro do comando no backend em confirmação de execução.
 
+## Horários programados
+
+O painel começa sem períodos fictícios. **Adicionar horário** cria uma linha com controles para ativar/desativar e campos separados **Ligar** e **Desligar**; é possível cadastrar, remover e editar até oito períodos. Os horários precisam ser diferentes. **Salvar horários** persiste a programação em `Preferences` na ESP32. Pela nuvem, a solicitação fica na fila por até sete dias enquanto a placa estiver offline e a tela só indica aplicação confirmada depois do retorno da ESP32.
+
 ## Firmware local
 
 ### Hardware e pinagem
@@ -85,11 +89,11 @@ Nome anunciado: `Hidroponia-ESP32`.
 | UUID | Permissões | Uso |
 |---|---|---|
 | `7b4a0001-7f3a-4b69-9f33-3a4f8c2c1000` | Serviço | Serviço principal. |
-| `7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000` | Read, Notify | JSON compacto de estado: bomba, nível, modo, sensores, ciclos, tempo, rede e NTP. |
+| `7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000` | Read, Notify | JSON compacto de estado: bomba, nível, modo, sensores, ciclos, tempo, rede e NTP. Os períodos BLE são tuplas `[used, enabled, ligar, desligar]`. |
 | `7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000` | Write, Write Without Response | Um comando JSON. O callback apenas enfileira; o `loop()` executa e verifica a proteção. |
 | `7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000` | Read, Notify | Confirmação JSON da última solicitação. |
 
-Comandos de controle: `{"id":"UUID-DO-CLIENTE","action":"on"}`, ou `off`, `auto`. Para enviar programação: `{"id":"UUID-DO-CLIENTE","action":"schedules","payload":[{"enabled":true,"start":"08:00","stop":"08:15"}, ...]}`; o array deve ter exatamente oito itens. Horários seguem `HH:MM`. A confirmação tem `{ "id": "...", "ok": true, "executed": true }`; em rejeição inclui `error`. IDs BLE já executados são persistidos para ignorar reenvios duplicados.
+Comandos de controle: `{"id":"UUID-DO-CLIENTE","action":"on"}`, ou `off`, `auto`. Para enviar programação, envie oito itens no formato `{"used":true,"enabled":true,"start":"08:00","stop":"08:15"}`; itens sem horário cadastrado usam `used:false`, `enabled:false`, `start:"00:00"`, `stop:"00:00"`. `used` mantém linhas desativadas visíveis na tela; `enabled` decide se a janela efetivamente aciona a bomba. Horários seguem `HH:MM` e ligar/desligar devem ser diferentes. A confirmação tem `{ "id": "...", "ok": true, "executed": true }`; em rejeição inclui `error`. IDs BLE já executados são persistidos para ignorar reenvios duplicados.
 
 O painel remoto inclui conexão Web Bluetooth. O navegador precisa oferecer Web Bluetooth e uma origem segura (HTTPS; Chrome/Edge em plataforma compatível). O painel local servido por HTTP em IP privado não é considerado contexto seguro por vários navegadores. Nesse caso, utilize um cliente BLE como nRF Connect ou um aplicativo próprio com esses UUIDs e JSON. A compatibilidade real depende do aparelho; ainda não foi testada em hardware nesta entrega.
 

@@ -54,7 +54,7 @@ O token do dispositivo está no firmware gravado e pode ser extraído por algué
 | `POST /api/login` | Usuário/senha | Cria cookie HttpOnly assinado, com validade de 8 horas. |
 | `GET /api/session` | Cookie de sessão válido | Confirma se o painel está autenticado. |
 | `GET /api/status` | Cookie de sessão válido | Estado mais recente, horário recebido, histórico no estado e últimos comandos. |
-| `POST /api/command` | Cookie de sessão válido | Registra `on`, `off`, `auto` ou `schedules`, com chave idempotente e validade de 90 s. Uma solicitação mais nova substitui comandos ainda pendentes. |
+| `POST /api/command` | Cookie de sessão válido | Registra `on`, `off`, `auto` ou `schedules`, com chave idempotente. Comandos manuais expiram em 90 s; programação de horários permanece pendente por até sete dias para a ESP32 reconectar. Uma solicitação mais nova substitui comandos ainda pendentes. |
 | `POST /api/logout` | Browser | Revoga o cookie de sessão atual. |
 | `POST /api/device/telemetry` | ESP32 com Bearer `DEVICE_TOKEN` + `X-Device-ID` | Atualiza último estado/`last_seen`. O histórico embarcado é transportado com a telemetria. |
 | `GET /api/device/commands` | ESP32 autenticado | Expira comandos velhos e entrega apenas o mais recente ainda válido. |

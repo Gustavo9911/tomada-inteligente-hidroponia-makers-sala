@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const { json, fail, method, db, env, userAuth } = require('../lib/api');
 
 function validSlots(slots) {
-  return Array.isArray(slots) && slots.length === 8 && slots.every(s => s && typeof s.enabled === 'boolean' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop));
+  return Array.isArray(slots) && slots.length === 8 && slots.every(s => s && typeof s.enabled === 'boolean' && (s.used === undefined || typeof s.used === 'boolean') && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) && (s.used === false || s.start !== s.stop));
 }
 module.exports = async (req, res) => {
   if (!method(req, res, 'POST')) return;
@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
     const key = typeof idempotencyKey === 'string' && /^[0-9a-f-]{36}$/i.test(idempotencyKey) ? idempotencyKey : randomUUID();
     const previous = await db(`commands?idempotency_key=eq.${encodeURIComponent(key)}&select=id,status&limit=1`);
     if (previous.length) return json(res, 200, { ...previous[0], message: 'Solicitação já registrada anteriormente.' });
-    const id = randomUUID(); const expiresAt = new Date(Date.now() + 90000).toISOString();
+    const id = randomUUID(); const expiresAt = new Date(Date.now() + (action === 'schedules' ? 7 * 24 * 60 * 60 * 1000 : 90000)).toISOString();
     // A solicitação mais recente substitui qualquer comando ainda pendente;
     // comandos expirados nunca ficam disponíveis após reconexões tardias.
     const device = env('DEVICE_ID') || 'hidroponia-adib-01';
