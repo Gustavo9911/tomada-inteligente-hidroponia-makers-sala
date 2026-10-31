@@ -1953,10 +1953,11 @@ class HydroBleServerCallbacks : public BLEServerCallbacks {
 
 class HydroBleCommandCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* characteristic) override {
-    std::string value = characteristic->getValue();
-    if (value.empty() || value.size() >= sizeof(bleCommandBuffer)) return;
+    String value = characteristic->getValue();
+    const size_t valueLength = value.length();
+    if (valueLength == 0 || valueLength >= sizeof(bleCommandBuffer)) return;
     portENTER_CRITICAL(&bleMux);
-    memcpy(bleCommandBuffer, value.data(), value.size()); bleCommandBuffer[value.size()] = '\0'; bleCommandPending = true;
+    memcpy(bleCommandBuffer, value.c_str(), valueLength); bleCommandBuffer[valueLength] = '\0'; bleCommandPending = true;
     portEXIT_CRITICAL(&bleMux);
   }
 };
