@@ -1,0 +1,9 @@
+{
+  "name": "hidroponia-adib-remote",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Painel remoto e API Vercel para o ESP32 de hidroponia",
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,26 @@
+# Credenciais de dispositivo e arquivos de ambiente
+HydroSecrets.h
+.env
+.env.*
+!.env.example
+
+# Vercel e dependências locais
+.vercel/
+node_modules/
+
+# Artefatos de compilação ESP32/Arduino
+build/
+*.bin
+*.elf
+*.map
+*.hex
+*.eep
+*.o
+*.d
+compile.log
+
+# Sistema operacional e IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080d22">
+  <title>Hidroponia · Makers Sala</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <section id="loginView" class="login-shell">
+    <div class="login-atmosphere" aria-hidden="true">
+      <div class="login-brand"><img src="/adib.png" alt=""><span><b>MAKERS SALA</b><small>SISTEMA DE HIDROPONIA · ESP32</small></span></div>
+      <div class="login-slogan"><span class="leaf-mark">✦</span><p>Tecnologia<br>que faz a natureza<br><strong>produzir mais.</strong></p></div>
+      <div class="art-caption"><span class="live-dot"></span> Projeto Maker · cultivo conectado</div>
+    </div>
+    <form id="loginForm" class="login-card">
+      <img class="login-mark" src="/adib.png" alt="Logo Makers Sala">
+      <p class="eyebrow">ACESSO REMOTO SEGURO</p>
+      <h1>Hidroponia</h1>
+      <p class="login-subtitle">Sistema inteligente de cultivo</p>
+      <label for="username">Usuário</label>
+      <div class="field-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 20c.6-3.4 2.7-5.2 6.5-5.2s5.9 1.8 6.5 5.2"/></svg><input id="username" type="text" autocomplete="username" placeholder="Seu usuário" required></div>
+      <label for="password">Senha</label>
+      <div class="field-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="10" width="13" height="10" rx="2"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/></svg><input id="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required><button type="button" id="togglePassword" class="show-password" aria-label="Mostrar senha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.2-6 9.5-6 9.5 6 9.5 6-3.2 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></div>
+      <button class="button primary full" type="submit" id="loginButton"><span>Entrar</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></button>
+      <p id="loginMessage" class="form-message" aria-live="polite"></p>
+      <p class="login-foot"><span class="lock-icon">●</span> Conexão protegida por HTTPS</p>
+      <div class="login-baseline"><span></span><small>CULTIVE O FUTURO</small><span></span></div>
+    </form>
+  </section>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#overview"><img src="/adib.png" alt=""><span><b>Makers Sala · Hidroponia</b><small>Tomada inteligente · ESP32</small></span></a>
+      <nav aria-label="Navegação principal">
+        <a href="#overview" class="nav-item active" data-section="overview"><span class="nav-icon">⌂</span>Painel</a>
+        <a href="#sensors" class="nav-item" data-section="sensors"><span class="nav-icon">⌁</span>Sensores</a>
+        <a href="#schedule" class="nav-item" data-section="schedule"><span class="nav-icon">◷</span>Horários</a>
+        <a href="#history" class="nav-item" data-section="history"><span class="nav-icon">▤</span>Histórico</a>
+        <a href="#diagnostics" class="nav-item" data-section="diagnostics"><span class="nav-icon">⌘</span>Conexões</a>
+      </nav>
+      <div class="sidebar-art" aria-hidden="true"><span class="art-leaf leaf-one"></span><span class="art-leaf leaf-two"></span><span class="art-stem"></span><div class="art-channel"></div><div class="art-channel second"></div><div class="art-glow"></div></div>
+      <div class="sidebar-bottom"><div class="sidebar-online"><i></i><span id="sidebarStatus">Conectando</span><small>ESP32 · nuvem</small></div><div class="school-label">ESCOLA ESTADUAL<br><strong>ADIB MIGUEL HADDAD</strong></div><button id="logoutButton" class="logout">Sair da conta <span>↗</span></button></div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar"><div><p class="eyebrow">SISTEMA DE CULTIVO <span class="divider">/</span> <span id="deviceIdLabel">DISPOSITIVO</span></p><h1 id="pageTitle">Painel</h1></div><div class="top-actions"><span class="connection-pill" id="remotePill"><i></i><span>Conectando</span></span><button id="bleConnect" class="button secondary">Conectar por Bluetooth</button><span class="theme-chip" aria-hidden="true">◐</span><time class="clock-chip"><span id="topClock">--:--</span><small id="topDate">--/--/----</small></time></div></header>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="staleBanner" class="stale-banner hidden">Sem comunicação recente com o ESP32. Os valores abaixo são do último estado conhecido.</div>
+
+      <section id="overview" class="page-section">
+        <div class="overview-grid">
+          <article id="control" class="pump-panel">
+            <div class="pump-copy"><p class="eyebrow">CONTROLE DA BOMBA</p><h2 id="pumpState">Aguardando dados</h2><p id="modeState" class="muted">Modo não confirmado</p></div>
+            <div class="pump-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 28h7l5-12h10l5 12h5M13 28v8h22v-8M19 16V9h10v7M24 9V5"/></svg></div>
+            <div class="pump-controls"><button class="button pump-on" data-command="on"><span>▶</span> Ligar</button><button class="button pump-off" data-command="off"><span>⏻</span> Desligar</button><button class="button pump-auto" data-command="auto">Automático</button></div>
+            <div class="pump-meta"><span id="controlMode">Modo automático</span><span id="freshness">Sem atualização</span></div>
+            <p class="inline-warning hidden" id="lowWaterWarning">Nível de água baixo. A partida está bloqueada.</p>
+            <span id="commandState" class="command-note">Nenhum comando pendente</span>
+          </article>
+          <article class="metric-panel temperature-panel"><span class="metric-label"><i class="metric-icon thermometer">♨</i> Temperatura</span><strong id="temperature">—</strong><small id="temperatureUpdated">Sem leitura</small><span class="sparkline temp-line" aria-hidden="true"></span></article>
+          <article class="metric-panel humidity-panel"><span class="metric-label"><i class="metric-icon humidity-icon">◌</i> Umidade</span><strong id="humidity">—</strong><small id="humidityUpdated">Sem leitura</small><span class="metric-illustration water-drop" aria-hidden="true">◖</span></article>
+          <article class="metric-panel water-panel"><span class="metric-label"><i class="metric-icon water-icon">≋</i> Nível da água</span><strong id="waterState" class="state-chip neutral">Aguardando leitura</strong><small>Reservatório · chave boia</small><div class="tank-illustration" aria-hidden="true"><span></span></div></article>
+        </div>
+
+        <div class="dashboard-lower">
+          <section id="schedule" class="page-section schedule-section">
+            <form id="scheduleForm" class="content-panel schedule-panel"><div class="panel-heading"><div><p class="eyebrow">AUTOMAÇÃO LOCAL</p><h2>Horários automáticos</h2><p>Configure quando a bomba deve funcionar.</p></div><span class="heading-icon">◷</span></div><div class="schedule-head"><span>Período</span><span>Ligar</span><span></span><span>Desligar</span></div><div id="scheduleRows"></div><div class="form-footer"><span id="scheduleStatus" class="muted">Carregando programação</span><button class="button primary" type="submit"><span>▣</span> Salvar horários</button></div></form>
+          </section>
+          <aside class="stats-panel"><div class="panel-heading"><div><p class="eyebrow">RESUMO DO SISTEMA</p><h2>Estatísticas</h2></div><span class="heading-icon bars-icon">▥</span></div><div class="stat-row"><span class="stat-icon">◉</span><span>Ciclos da bomba</span><strong id="cycles">—</strong></div><div class="stat-row"><span class="stat-icon">◷</span><span>Tempo total ligado</span><strong id="totalTime">—</strong></div><div class="stat-row"><span class="stat-icon">▦</span><span>Horário atual</span><strong id="currentTime">—</strong></div><div class="stat-row"><span class="stat-icon">◎</span><span>IP do dispositivo</span><strong id="deviceIp">—</strong></div><div class="stats-motif" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></aside>
+        </div>
+        <div class="connection-strip"><span class="strip-orb">⌁</span><div><strong>O controle continua no ESP32</strong><small>Agenda, proteção por nível e operação local funcionam sem internet.</small></div><span class="strip-status" id="wifiState">Wi-Fi</span></div>
+      </section>
+
+      <section id="sensors" class="page-section"><div class="section-heading"><div><p class="eyebrow">AMBIENTE DE CULTIVO</p><h2>Sensores</h2></div><span id="sensorHealth" class="section-caption">Aguardando comunicação</span></div><div class="sensor-grid"><article class="sensor-card"><span>Temperatura do ar</span><strong id="sensorTemperature">—</strong><small id="sensorTemperatureTime">Última leitura indisponível</small></article><article class="sensor-card"><span>Umidade do ar</span><strong id="sensorHumidity">—</strong><small id="sensorHumidityTime">Última leitura indisponível</small></article><article class="sensor-card water-detail"><span>Nível no reservatório</span><strong id="sensorWater">Aguardando leitura</strong><small>Chave boia digital · GPIO 5</small></article></div></section>
+      <section id="history" class="page-section"><div class="section-heading"><div><p class="eyebrow">REGISTROS DO DISPOSITIVO</p><h2>Histórico de eventos</h2></div><span class="section-caption">Eventos recebidos do ESP32</span></div><article class="content-panel"><ol id="eventList" class="event-list"><li class="muted">Sem eventos recebidos.</li></ol></article></section>
+      <section id="diagnostics" class="page-section"><div class="section-heading"><div><p class="eyebrow">DIAGNÓSTICO</p><h2>Conexões e dispositivo</h2></div><span id="lastSeen" class="section-caption">Aguardando comunicação</span></div><div class="diagnostic-grid"><article class="diagnostic-card"><span>Wi-Fi</span><strong id="diagWifi">—</strong><small id="diagIp">IP indisponível</small></article><article class="diagnostic-card"><span>Bluetooth LE</span><strong id="diagBle">Desconectado</strong><small>Web Bluetooth depende do navegador e de contexto seguro.</small><button id="bleConnectCard" class="text-button">Conectar dispositivo&nbsp; →</button></article><article class="diagnostic-card"><span>Nuvem</span><strong id="diagCloud">—</strong><small>HTTPS · comunicação iniciada pelo ESP32</small></article><article class="diagnostic-card"><span>Sincronização de horário</span><strong id="diagTime">—</strong><small id="deviceTime">Horário do dispositivo indisponível</small></article><article class="diagnostic-card"><span>Sensores</span><strong id="diagSensors">—</strong><small>DHT22 e chave boia</small></article><article class="diagnostic-card"><span>Atualização recebida</span><strong id="diagUpdated">—</strong><small>Dados podem atrasar em caso de falha de rede.</small></article></div></section>
+      <footer class="page-footer"><span>Escola Estadual Adib Miguel Haddad</span><span>PROJETO MAKER · HIDROPONIA</span></footer>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
