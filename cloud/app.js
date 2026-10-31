@@ -6,12 +6,16 @@
   const BLE_COMMAND = '7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_ACK     = '7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000';
   const $ = id => document.getElementById(id);
+  // Algumas versões antigas da página podem coexistir por cache/CDN.
+  // Evita que um erro secundário no tratamento de rede esconda a falha real.
+  function setText(id, value) { const element = $(id); if (element) element.textContent = value ?? '—'; }
+  function setClass(id, className, enabled) { const element = $(id); if (element) element.classList.toggle(className, enabled); }
   const state = { config: null, authenticated: false, refreshTimer: 0,
     bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleConnected: false, bleRefreshTimer: 0,
     lastPayload: null, schedulesDirty: false, pendingScheduleCommandId: null, busy: false, toastTimer: 0 };
 
   function toast(message, error = false) {
-    const el = $('toast'); el.textContent = message; el.classList.toggle('error', error); el.classList.add('visible');
+    const el = $('toast'); if (!el) return; el.textContent = message; el.classList.toggle('error', error); el.classList.add('visible');
     clearTimeout(state.toastTimer); state.toastTimer = setTimeout(() => el.classList.remove('visible'), 3600);
   }
   function setBusy(button, busy, label) {
@@ -39,7 +43,7 @@
     if (!value) return '—'; const date = new Date(value);
     return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
   }
-  function safeText(id, value) { $(id).textContent = value ?? '—'; }
+  function safeText(id, value) { setText(id, value); }
   function scheduleIsUsed(slot) {
     if (typeof slot.used === 'boolean') return slot.used;
     return Boolean(slot.enabled) || (slot.start !== '08:00' || slot.stop !== '08:15');
@@ -96,9 +100,8 @@
     const receivedAt = payload.lastSeen || payload.last_seen || device.updatedAt || device.updated_at;
     const age = receivedAt ? Date.now() - new Date(receivedAt).getTime() : Infinity;
     const fresh = age < 45000;
-    $('remotePill').classList.toggle('online', fresh); $('remotePill').classList.toggle('offline', !fresh);
-    $('remotePill').querySelector('span').textContent = fresh ? 'ESP32 conectado' : 'Dispositivo offline';
-    $('staleBanner').classList.toggle('hidden', fresh);
+    const remotePill = $('remotePill'); if (remotePill) { remotePill.classList.toggle('online', fresh); remotePill.classList.toggle('offline', !fresh); const label = remotePill.querySelector('span'); if (label) label.textContent = fresh ? 'ESP32 conectado' : 'Dispositivo offline'; }
+    setClass('staleBanner', 'hidden', fresh);
     safeText('pumpState', device.pump ? 'Bomba ligada' : device.pump === false ? 'Bomba desligada' : 'Aguardando estado');
     safeText('modeState', device.manual ? 'Modo manual' : device.manual === false ? 'Automático · agenda local' : 'Modo não confirmado');
     safeText('controlMode', device.manual ? 'Modo manual' : 'Modo automático');
@@ -150,7 +153,7 @@
   async function refresh() {
     if (!state.authenticated || state.bleConnected) return;
     try { const payload = await api('/api/status'); renderStatus(payload); }
-    catch (error) { $('remotePill').classList.add('offline'); $('remotePill').querySelector('span').textContent = 'Falha de comunicação'; $('staleBanner').classList.remove('hidden'); $('staleBanner').textContent = `${error.message} · exibindo o último estado recebido, se disponível.`; }
+    catch (error) { const pill = $('remotePill'); if (pill) { pill.classList.add('offline'); const label = pill.querySelector('span'); if (label) label.textContent = 'Falha de comunicação'; } const banner = $('staleBanner'); if (banner) { banner.classList.remove('hidden'); banner.textContent = `${error.message} · exibindo o último estado recebido, se disponível.`; } }
   }
   async function signIn(event) {
     event.preventDefault(); const button = $('loginButton'); setBusy(button, true, 'Validando…'); $('loginMessage').textContent = '';
