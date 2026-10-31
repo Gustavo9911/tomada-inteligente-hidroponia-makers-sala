@@ -115,4 +115,14 @@ O cultivo hidropônico depende da circulação de solução nutritiva e da manut
 
 ## Crédito do projeto
 
-**Equipe Makers Sala — Escola Estadual Adib Miguel Haddad.** Projeto educacional de automação e hidroponia. Acrescente os nomes oficiais dos integrantes, orientador(a), turma e ano antes da entrega à feira ou publicação formal.
+**Equipe Projeto Maker Sala,**
+
+**Orientador/coorientadora;**
+-
+-
+---------------------------------
+**Alunos;**
+-
+-
+-
+**— Escola Estadual Adib Miguel Haddad.** **Projeto de automação e hidroponia.**
