@@ -2,7 +2,7 @@ const { randomUUID } = require('node:crypto');
 const { json, fail, method, db, env, userAuth } = require('../lib/api');
 
 function validSlots(slots) {
-  return Array.isArray(slots) && slots.length === 8 && slots.every(s => s && typeof s.enabled === 'boolean' && (s.used === undefined || typeof s.used === 'boolean') && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) && (s.used === false || s.start !== s.stop));
+  return Array.isArray(slots) && slots.length === 34 && slots.every(s => s && typeof s.enabled === 'boolean' && (s.used === undefined || typeof s.used === 'boolean') && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) && (s.used === false || s.start !== s.stop));
 }
 module.exports = async (req, res) => {
   if (!method(req, res, 'POST')) return;
