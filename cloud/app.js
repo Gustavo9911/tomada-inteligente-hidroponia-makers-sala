@@ -5,6 +5,7 @@
   const BLE_STATUS  = '7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_COMMAND = '7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_ACK     = '7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000';
+  const MAX_SLOTS = 34;
   const $ = id => document.getElementById(id);
   // Algumas versões antigas da página podem coexistir por cache/CDN.
   // Evita que um erro secundário no tratamento de rede esconda a falha real.
@@ -50,7 +51,7 @@
   }
   function renderSchedules(slots) {
     const root = $('scheduleRows'); root.replaceChildren();
-    const configured = (slots || []).filter(scheduleIsUsed).slice(0, 8);
+    const configured = (slots || []).filter(scheduleIsUsed).slice(0, 34);
     configured.forEach((slot, index) => {
       const row = document.createElement('div'); row.className = 'schedule-row';
       const label = document.createElement('label'); label.className = 'schedule-name';
@@ -68,8 +69,8 @@
       root.appendChild(row);
     });
     if (!configured.length) { const empty = document.createElement('div'); empty.className = 'schedule-empty'; empty.textContent = 'Nenhum horário cadastrado. Toque em Adicionar horário.'; root.appendChild(empty); }
-    $('slotCount').textContent = `${configured.length} de 8 horários`;
-    $('addSchedule').disabled = configured.length >= 8;
+    $('slotCount').textContent = `${configured.length} de 34 horários`;
+    $('addSchedule').disabled = configured.length >= 34;
     if (!configured.length) $('scheduleStatus').textContent = 'Adicione um horário para começar';
   }
   function readScheduleRows() {
@@ -86,7 +87,7 @@
   }
   function addSchedule() {
     const current = readScheduleRows();
-    if (current.length >= 8) return;
+    if (current.length >= 34) return;
     current.push({ used: true, enabled: false, start: '08:00', stop: '08:15' });
     renderSchedules(current); markScheduleDirty();
   }
@@ -208,9 +209,9 @@
   async function saveSchedule(event) {
     event.preventDefault(); if (state.busy) return; const button = event.submitter; const slots = [];
     const configured = readScheduleRows();
-    if (configured.length > 8) { toast('O limite é de 8 horários.', true); return; }
+    if (configured.length > 34) { toast('O limite é de 34 horários.', true); return; }
     if (configured.some(s => !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) || s.start === s.stop)) { toast('Informe horários válidos e diferentes para ligar e desligar.', true); return; }
-    for (let i = 0; i < 8; i++) slots.push(configured[i] || { used: false, enabled: false, start: '00:00', stop: '00:00' });
+    for (let i = 0; i < 34; i++) slots.push(configured[i] || { used: false, enabled: false, start: '00:00', stop: '00:00' });
     setBusy(button, true, 'Salvando…');
     try {
       const result = await sendCommand('schedules', slots);
