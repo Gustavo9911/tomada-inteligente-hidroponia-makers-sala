@@ -32,3 +32,19 @@
 .theme-chip{display:grid;place-items:center}
 .schedule-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 12px}.add-schedule{white-space:nowrap}.add-schedule:disabled{opacity:.5;cursor:not-allowed}.schedule-head,.schedule-row{grid-template-columns:minmax(112px,1fr) 68px minmax(82px,.8fr) 18px minmax(82px,.8fr) 32px}.schedule-row{min-height:42px}.schedule-name{display:flex;align-items:center;gap:7px;color:#c9d4ef;font-size:.67rem;font-weight:700}.schedule-toggle{display:flex;align-items:center;gap:5px;color:#9eaccb;font-size:.58rem}.schedule-toggle input{accent-color:#665cff;width:16px;height:16px;margin:0}.schedule-row input[type=time]{height:32px;font-size:.67rem}.remove-schedule{width:28px;height:28px;border:1px solid #58344e;border-radius:8px;background:#26162a;color:#ff91a9;font-size:1.15rem;line-height:1}.remove-schedule:hover{background:#401d35}.schedule-empty{border:1px dashed #2a3a61;border-radius:9px;padding:16px;color:#8492b2;text-align:center;font-size:.72rem}
 @media(max-width:560px){.schedule-toolbar{align-items:stretch;flex-direction:column}.add-schedule{width:100%}.schedule-head,.schedule-row{grid-template-columns:minmax(65px,.8fr) 49px minmax(68px,1fr) 12px minmax(68px,1fr) 28px;gap:4px}.schedule-head{font-size:.48rem;padding-inline:2px}.schedule-row{padding-inline:2px}.schedule-name{font-size:.55rem}.schedule-toggle{font-size:0;justify-content:center}.schedule-toggle input{width:15px;height:15px}.schedule-row input[type=time]{height:29px;font-size:.58rem;padding:2px}.remove-schedule{width:25px;height:25px}}
+
+/* Fila de horários: status por período e resumo */
+.queue-summary{margin:0 0 12px;padding:11px 13px;border:1px solid #2a3b66;border-radius:10px;background:#0b1430;color:#c9d4ef;font-size:.7rem;line-height:1.65}
+.queue-summary:empty{display:none}
+.queue-summary.running{border-color:#146951;background:linear-gradient(90deg,#0d392f,#0b1830);color:#d9fff3}
+.queue-summary.warn{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
+.schedule-name{flex-direction:column;align-items:flex-start;gap:3px}
+.slot-badge{display:inline-block;padding:2px 7px;border-radius:99px;border:1px solid #30416a;background:#111d3b;color:#9daaca;font:500 .55rem "DM Mono",monospace;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+.slot-badge.running{border-color:#146951;background:#0d392f;color:#56ddb2}
+.slot-badge.next{border-color:#5b4fe0;background:#1d1a5e;color:#b2a9ff}
+.slot-badge.done{opacity:.6}
+.slot-badge.off{opacity:.45}
+.slot-badge.blocked{border-color:#833d58;background:#401d35;color:#ff91a9}
+.slot-badge.manual,.slot-badge.wait{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
+.schedule-row.is-running{background:linear-gradient(90deg,#0d392f80,transparent);box-shadow:inset 2px 0 0 #22d19a}
+.schedule-row.is-next{box-shadow:inset 2px 0 0 #665cff}

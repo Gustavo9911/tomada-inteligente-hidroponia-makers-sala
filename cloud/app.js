@@ -73,6 +73,7 @@
     $('slotCount').textContent = `${configured.length} de 34 horários`;
     $('addSchedule').disabled = configured.length >= 34;
     if (!configured.length) $('scheduleStatus').textContent = 'Adicione um horário para começar';
+    updateQueue();
   }
   function readScheduleRows() {
     return [...$('scheduleRows').querySelectorAll('.schedule-row')].map(row => ({
@@ -97,6 +98,94 @@
       slots.push({ used: p[0] === '1', enabled: p[1] === '1', start: `${p.slice(2, 4)}:${p.slice(4, 6)}`, stop: `${p.slice(6, 8)}:${p.slice(8, 10)}` });
     }
     return slots;
+  }
+  // ---- Fila de horários: mostra a ordem de execução e o que está rodando agora ----
+  function hhmmToSec(text) { const [h, m] = String(text || '').split(':').map(Number); return (h || 0) * 3600 + (m || 0) * 60; }
+  function fmtDuration(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h) return `${h} h ${String(m).padStart(2, '0')} min`;
+    if (m) return `${m} min ${String(s).padStart(2, '0')} s`;
+    return `${s} s`;
+  }
+  // Hora do ESP32 agora (segundos do dia), estimada a partir do último estado recebido; null se sem comunicação recente.
+  function deviceSeconds() {
+    const payload = state.lastPayload; if (!payload) return null;
+    const device = payload.device || payload;
+    const match = /(\d{2}):(\d{2}):(\d{2})\s*$/.exec(device.now || '');
+    if (!match) return null;
+    const receivedAt = payload.lastSeen || payload.last_seen || device.updatedAt || device.updated_at;
+    const elapsed = receivedAt ? (Date.now() - new Date(receivedAt).getTime()) / 1000 : 0;
+    if (!(elapsed >= 0 && elapsed < 45)) return null;
+    return (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) + elapsed) % 86400;
+  }
+  function updateQueue() {
+    const rowsRoot = $('scheduleRows'); if (!rowsRoot) return;
+    let box = $('queueSummary');
+    if (!box) { box = document.createElement('div'); box.id = 'queueSummary'; box.className = 'queue-summary'; rowsRoot.before(box); }
+    const device = state.lastPayload ? (state.lastPayload.device || state.lastPayload) : {};
+    const now = deviceSeconds();
+    const items = [...rowsRoot.querySelectorAll('.schedule-row')].map((row, index) => {
+      const startText = row.querySelector('input[name^="start"]').value, stopText = row.querySelector('input[name^="stop"]').value;
+      const start = hhmmToSec(startText), stop = hhmmToSec(stopText);
+      const enabled = row.querySelector('input[type="checkbox"]').checked;
+      const valid = Boolean(startText && stopText && start !== stop);
+      const item = { row, index, name: `Período ${String(index + 1).padStart(2, '0')}`, startText, stopText, start, stop, enabled, valid, status: 'off', label: 'Desativado', remaining: 0, delta: Infinity };
+      if (!enabled || !valid) return item;
+      if (now === null) { item.status = 'wait'; item.label = 'Aguardando ESP32'; return item; }
+      const inWindow = start < stop ? (now >= start && now < stop) : (now >= start || now < stop);
+      if (inWindow) {
+        item.remaining = start < stop ? stop - now : (now >= start ? 86400 - now + stop : stop - now);
+        if (device.low === true) { item.status = 'blocked'; item.label = 'Bloqueado · nível baixo'; }
+        else if (device.manual === true) { item.status = 'manual'; item.label = 'Manual ativo · agenda pausada'; }
+        else if (device.pump === true) { item.status = 'running'; item.label = `Rodando agora · faltam ${fmtDuration(item.remaining)}`; }
+        else { item.status = 'running'; item.label = 'Na janela agora'; }
+      } else {
+        item.delta = (start - now + 86400) % 86400;
+        item.status = start < stop && now >= stop ? 'done' : 'queued';
+        item.label = item.status === 'done' ? 'Concluído hoje' : 'Na fila';
+      }
+      return item;
+    });
+    const upcoming = items.filter(i => i.delta !== Infinity).sort((a, b) => a.delta - b.delta);
+    if (upcoming.length) { const next = upcoming[0]; next.status = 'next'; next.label = `Próximo · em ${fmtDuration(next.delta)}`; }
+    items.forEach(item => {
+      let badge = item.row.querySelector('.slot-badge');
+      if (!badge) { badge = document.createElement('span'); item.row.querySelector('.schedule-name').append(badge); }
+      badge.className = `slot-badge ${item.status}`; badge.textContent = item.label;
+      item.row.classList.toggle('is-running', item.status === 'running');
+      item.row.classList.toggle('is-next', item.status === 'next');
+    });
+    // Resumo no topo da lista
+    const active = items.filter(i => i.enabled && i.valid);
+    box.replaceChildren();
+    if (!items.length) { box.className = 'queue-summary'; return; }
+    const line = text => { const div = document.createElement('div'); div.textContent = text; box.append(div); return div; };
+    const running = items.find(i => i.status === 'running' || i.status === 'blocked' || i.status === 'manual');
+    const next = upcoming[0];
+    box.className = 'queue-summary';
+    if (now === null) {
+      box.classList.add('warn');
+      line(active.length ? 'Sem comunicação recente com a ESP32: não dá para confirmar qual horário está rodando agora.' : 'Nenhum horário ativo na fila.');
+    } else if (!active.length) {
+      line('Nenhum horário ativo na fila.');
+    } else {
+      if (running) {
+        const range = `${running.startText} → ${running.stopText}`;
+        if (running.status === 'blocked') { box.classList.add('warn'); line(`${running.name} (${range}) está na janela, mas a bomba está bloqueada por nível baixo.`); }
+        else if (running.status === 'manual') { box.classList.add('warn'); line(`Modo manual ativo: a fila está pausada. ${running.name} (${range}) estaria na janela agora.`); }
+        else { box.classList.add('running'); line(`▶ Rodando agora: ${running.name} · ${range} · faltam ${fmtDuration(running.remaining)}`); }
+      } else {
+        line('Nenhum horário rodando agora.');
+      }
+      if (next) {
+        const chained = running && running.status === 'running' && next.start === running.stop;
+        line(chained
+          ? `Em seguida, sem pausa: ${next.name} (${next.startText} → ${next.stopText}).`
+          : `Próximo na fila: ${next.name} às ${next.startText} (em ${fmtDuration(next.delta)}).`);
+      }
+      line(`${active.length} ${active.length === 1 ? 'horário ativo' : 'horários ativos'} na fila · executados em ordem de horário, todos os dias.`);
+    }
   }
   function addSchedule() {
     const current = readScheduleRows();
@@ -163,6 +252,7 @@
     renderHistory(payload.events || device.history || []);
     if (payload.pendingCommand) safeText('commandState', `Comando ${payload.pendingCommand.action}: aguardando confirmação do ESP32`);
     else if (source === 'ble') safeText('commandState', 'Conectado diretamente por Bluetooth LE');
+    updateQueue();
   }
   async function refresh() {
     if (!state.authenticated || state.bleConnected) return;
@@ -225,6 +315,9 @@
     const configured = readScheduleRows();
     if (configured.length > 34) { toast('O limite é de 34 horários.', true); return; }
     if (configured.some(s => !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) || s.start === s.stop)) { toast('Informe horários válidos e diferentes para ligar e desligar.', true); return; }
+    // A fila roda em ordem de horário: ordena antes de salvar.
+    configured.sort((x, y) => x.start.localeCompare(y.start) || x.stop.localeCompare(y.stop));
+    renderSchedules(configured);
     for (let i = 0; i < 34; i++) slots.push(configured[i] || { used: false, enabled: false, start: '00:00', stop: '00:00' });
     setBusy(button, true, 'Salvando…');
     try {
@@ -252,7 +345,7 @@
   async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleDevice.gatt.disconnect(); return; } await connectBle(); }
 
   document.addEventListener('DOMContentLoaded', async () => {
-    $('loginForm').addEventListener('submit', signIn); $('logoutButton').addEventListener('click', signOut); $('scheduleForm').addEventListener('submit', saveSchedule); $('addSchedule').addEventListener('click', addSchedule); renderSchedules([]);
+    $('loginForm').addEventListener('submit', signIn); $('logoutButton').addEventListener('click', signOut); $('scheduleForm').addEventListener('submit', saveSchedule); $('addSchedule').addEventListener('click', addSchedule); renderSchedules([]); setInterval(updateQueue, 1000);
     $('togglePassword').addEventListener('click', () => { const input = $('password'); const visible = input.type === 'password'; input.type = visible ? 'text' : 'password'; $('togglePassword').textContent = visible ? 'Ocultar' : 'Ver'; });
     document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => sendCommand(button.dataset.command)));
     $('bleConnect').addEventListener('click', toggleBle); $('bleConnectCard').addEventListener('click', connectBle);
