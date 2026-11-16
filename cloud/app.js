@@ -5,6 +5,7 @@
   const BLE_STATUS  = '7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_COMMAND = '7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_ACK     = '7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000';
+  const BLE_SCHEDULE = '7b4a0005-7f3a-4b69-9f33-3a4f8c2c1000';
   const MAX_SLOTS = 34;
   const $ = id => document.getElementById(id);
   // Algumas versões antigas da página podem coexistir por cache/CDN.
@@ -12,7 +13,7 @@
   function setText(id, value) { const element = $(id); if (element) element.textContent = value ?? '—'; }
   function setClass(id, className, enabled) { const element = $(id); if (element) element.classList.toggle(className, enabled); }
   const state = { config: null, authenticated: false, refreshTimer: 0,
-    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleConnected: false, bleRefreshTimer: 0,
+    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleSchedule: null, bleConnected: false, bleRefreshTimer: 0,
     lastPayload: null, schedulesDirty: false, pendingScheduleCommandId: null, busy: false, toastTimer: 0 };
 
   function toast(message, error = false) {
@@ -84,6 +85,18 @@
   function markScheduleDirty() {
     state.schedulesDirty = true;
     $('scheduleStatus').textContent = 'Alterações não salvas';
+  }
+  // BLE: agenda em texto compacto (10 caracteres por horário usado: usado, ativo, HHMM ligar, HHMM desligar).
+  function compactSchedule(slots) {
+    return (slots || []).filter(s => s.used).map(s => `1${s.enabled ? 1 : 0}${s.start.replace(':', '')}${s.stop.replace(':', '')}`).join('');
+  }
+  function parseCompactSchedule(text) {
+    const slots = [];
+    for (let i = 0; i + 10 <= text.length; i += 10) {
+      const p = text.slice(i, i + 10);
+      slots.push({ used: p[0] === '1', enabled: p[1] === '1', start: `${p.slice(2, 4)}:${p.slice(4, 6)}`, stop: `${p.slice(6, 8)}:${p.slice(8, 10)}` });
+    }
+    return slots;
   }
   function addSchedule() {
     const current = readScheduleRows();
@@ -171,7 +184,8 @@
     try {
       if (action === 'on' && state.lastPayload?.device?.low === true) throw new Error('Nível de água baixo: o ESP32 não permitirá ligar a bomba.');
       if (state.bleConnected) {
-        const command = { id: crypto.randomUUID(), action, ...(payload ? { payload } : {}) };
+        const blePayload = action === 'schedules' ? compactSchedule(payload) : payload;
+        const command = { id: crypto.randomUUID(), action, ...(blePayload !== null && blePayload !== undefined ? { payload: blePayload } : {}) };
         await state.bleCommand.writeValue(new TextEncoder().encode(JSON.stringify(command)));
         let result = null;
         for (let attempt = 0; attempt < 20; attempt++) {
@@ -227,12 +241,12 @@
       const device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Hidroponia-ESP32' }], optionalServices: [BLE_SERVICE] });
       state.bleDevice = device; device.addEventListener('gattserverdisconnected', () => { state.bleConnected = false; clearInterval(state.bleRefreshTimer); safeText('bleState', 'Desconectado'); safeText('diagBle', 'Desconectado'); $('bleConnect').textContent = 'Conectar por Bluetooth'; $('remotePill').classList.remove('online'); toast('Bluetooth desconectado.'); startPolling(); });
       const server = await device.gatt.connect(); const service = await server.getPrimaryService(BLE_SERVICE);
-      state.bleStatus = await service.getCharacteristic(BLE_STATUS); state.bleCommand = await service.getCharacteristic(BLE_COMMAND); state.bleAck = await service.getCharacteristic(BLE_ACK); state.bleConnected = true;
+      state.bleStatus = await service.getCharacteristic(BLE_STATUS); state.bleCommand = await service.getCharacteristic(BLE_COMMAND); state.bleAck = await service.getCharacteristic(BLE_ACK); state.bleSchedule = await service.getCharacteristic(BLE_SCHEDULE).catch(() => null); state.bleConnected = true;
       safeText('bleState', 'Conectado'); safeText('diagBle', device.name || 'Conectado'); $('bleConnect').textContent = 'Desconectar Bluetooth'; clearInterval(state.refreshTimer); await readBleStatus(); clearInterval(state.bleRefreshTimer); state.bleRefreshTimer = setInterval(readBleStatus, 3000); toast('Conexão BLE estabelecida.');
     } catch (error) { if (error.name !== 'NotFoundError') toast(error.message || 'Não foi possível conectar por BLE.', true); }
   }
   async function readBleStatus() {
-    if (!state.bleConnected) return; try { const value = await state.bleStatus.readValue(); const data = JSON.parse(new TextDecoder().decode(value.buffer)); if (Array.isArray(data.slots)) data.slots = data.slots.map(slot => slot.length >= 4 ? ({ used: Boolean(slot[0]), enabled: Boolean(slot[1]), start: slot[2], stop: slot[3] }) : ({ used: Boolean(slot[0]), enabled: Boolean(slot[0]), start: slot[1], stop: slot[2] })); renderStatus({ device: data, lastSeen: new Date().toISOString(), events: data.history || [] }, 'ble'); $('remotePill').classList.add('online'); $('remotePill').querySelector('span').textContent = 'Bluetooth conectado'; }
+    if (!state.bleConnected) return; try { const value = await state.bleStatus.readValue(); const data = JSON.parse(new TextDecoder().decode(value.buffer)); if (Array.isArray(data.slots)) data.slots = data.slots.map(slot => slot.length >= 4 ? ({ used: Boolean(slot[0]), enabled: Boolean(slot[1]), start: slot[2], stop: slot[3] }) : ({ used: Boolean(slot[0]), enabled: Boolean(slot[0]), start: slot[1], stop: slot[2] })); if (state.bleSchedule) { try { data.slots = parseCompactSchedule(new TextDecoder().decode((await state.bleSchedule.readValue()).buffer)); } catch {} } renderStatus({ device: data, lastSeen: new Date().toISOString(), events: data.history || [] }, 'ble'); $('remotePill').classList.add('online'); $('remotePill').querySelector('span').textContent = 'Bluetooth conectado'; }
     catch (error) { toast(`Falha ao ler o estado BLE: ${error.message}`, true); }
   }
   async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleDevice.gatt.disconnect(); return; } await connectBle(); }

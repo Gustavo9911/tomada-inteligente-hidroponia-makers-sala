@@ -68,7 +68,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 // CONSTANTES
 // ============================================================
 
-const uint8_t SLOT_COUNT = 8;
+const uint8_t SLOT_COUNT = 34;
 const uint8_t HISTORY_SIZE = 12;
 
 // Tempo máximo do modo manual: 30 minutos
@@ -114,7 +114,7 @@ struct HistoryEvent {
 struct RemoteCommand {
   char id[37];
   char action[16];
-  char payload[700];
+  char payload[2400];
 };
 
 struct RemoteResult {
@@ -182,14 +182,16 @@ void checkpointPumpTime();
 // BLE: serviço de leitura/controle local, independente de Wi-Fi/internet.
 static const char* BLE_DEVICE_NAME = "Hidroponia-ESP32";
 static const char* BLE_SERVICE_UUID = "7b4a0001-7f3a-4b69-9f33-3a4f8c2c1000";
-static const char* BLE_STATUS_UUID  = "7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000";
+static const char* BLE_STATUS_UUID = "7b4a0002-7f3a-4b69-9f33-3a4f8c2c1000";
 static const char* BLE_COMMAND_UUID = "7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000";
-static const char* BLE_ACK_UUID     = "7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000";
+static const char* BLE_ACK_UUID = "7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000";
+static const char* BLE_SCHEDULE_UUID = "7b4a0005-7f3a-4b69-9f33-3a4f8c2c1000";
 BLECharacteristic* bleStatusCharacteristic = nullptr;
 BLECharacteristic* bleAckCharacteristic = nullptr;
+BLECharacteristic* bleScheduleCharacteristic = nullptr;
 volatile bool bleConnected = false;
 volatile bool bleCommandPending = false;
-char bleCommandBuffer[900] = {0};
+char bleCommandBuffer[900] = { 0 };
 portMUX_TYPE bleMux = portMUX_INITIALIZER_UNLOCKED;
 
 QueueHandle_t cloudCommandQueue = nullptr;
@@ -242,7 +244,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   <article class="card metric-card"><span class="metric-label"><i class="metric-icon">≋</i> Nível da água</span><strong id="level" class="metric-value">--</strong><small class="metric-foot">Reservatório · chave boia</small></article>
 </section>
 <div class="schedule-stats">
-  <section class="card section-link" id="schedule"><div class="section-title"><div><p class="eyebrow">AUTOMAÇÃO LOCAL</p><h2>Horários automáticos</h2><p>Adicione até oito períodos; a agenda continua ativa sem o painel aberto.</p></div><span class="section-mark">◷</span></div><div class="schedule-toolbar"><span id="slotCount">0 de 8 horários</span><button id="addSlot" class="add-slot" type="button" onclick="addSchedule()">＋ Adicionar horário</button></div><div class="schedule-head"><span>Período</span><span>Ativo</span><span>Ligar</span><span></span><span>Desligar</span><span></span></div><div id="schedules"></div><div id="scheduleStatus" class="schedule-status">Adicione um horário para começar.</div><button id="saveSchedulesButton" class="schedule-save btn-auto" onclick="saveSchedules()">▣&nbsp; Salvar horários</button></section>
+  <section class="card section-link" id="schedule"><div class="section-title"><div><p class="eyebrow">AUTOMAÇÃO LOCAL</p><h2>Horários automáticos</h2><p>Adicione até 34 períodos; a agenda continua ativa sem o painel aberto.</p></div><span class="section-mark">◷</span></div><div class="schedule-toolbar"><span id="slotCount">0 de 34 horários</span><button id="addSlot" class="add-slot" type="button" onclick="addSchedule()">＋ Adicionar horário</button></div><div class="schedule-head"><span>Período</span><span>Ativo</span><span>Ligar</span><span></span><span>Desligar</span><span></span></div><div id="schedules"></div><div id="scheduleStatus" class="schedule-status">Adicione um horário para começar.</div><button id="saveSchedulesButton" class="schedule-save btn-auto" onclick="saveSchedules()">▣&nbsp; Salvar horários</button></section>
   <section class="card stats section-link" id="stats"><div class="section-title"><div><p class="eyebrow">RESUMO DE OPERAÇÃO</p><h2>Estatísticas e conexão</h2></div><span class="section-mark">▥</span></div><p><span>◉</span>Ciclos da bomba<strong id="cycles">--</strong></p><p><span>◷</span>Tempo total ligado<strong id="total">--</strong></p><p><span>▦</span>Horário atual<strong id="now">--</strong></p><p><span>◎</span>IP do dispositivo<strong id="ip">--</strong></p><div class="diagnostic-lines" id="connections"><p>Wi-Fi / AP<strong id="wifi">--</strong></p><p>Intensidade<strong id="rssi">--</strong></p><p>Bluetooth LE<strong id="ble">--</strong></p><p>Serviço remoto<strong id="cloud">--</strong></p><p>Horário NTP<strong id="ntp">--</strong></p></div></section>
 </div>
 <section class="card section-link" id="history-panel" style="margin-top:12px"><div class="section-title"><div><p class="eyebrow">REGISTROS DO DISPOSITIVO</p><h2>Histórico de eventos</h2></div><span class="section-mark">▤</span></div><div id="history" class="history">Carregando…</div></section>
@@ -301,9 +303,9 @@ async function control(action) {
 async function saveSchedules() {
   const body = new URLSearchParams();
   const rows = [...document.querySelectorAll("#schedules .schedule")];
-  if (rows.length > 8) { toast("O limite é de 8 horários.", true); return; }
+  if (rows.length > 34) { toast("O limite é de 34 horários.", true); return; }
   body.append("scheduleV2", "1");
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 34; i++) {
     const row = rows[i];
     const used = Boolean(row);
     const enabled = used && row.querySelector(`#en${i}`).checked;
@@ -339,7 +341,7 @@ function markScheduleDirty() {
 
 function addSchedule() {
   const slots = readScheduleRows();
-  if (slots.length >= 8) return;
+  if (slots.length >= 34) return;
   slots.push({ used: true, enabled: false, start: "08:00", stop: "08:15" });
   renderSchedules(slots); markScheduleDirty();
 }
@@ -354,7 +356,7 @@ function renderSchedules(slots) {
     const stop = slot.stop || slot.off || "00:00";
     const used = typeof slot.used === "boolean" ? slot.used : (enabled || start !== "08:00" || stop !== "08:15");
     return { used, enabled, start, stop };
-  }).filter(slot => slot.used).slice(0, 8);
+  }).filter(slot => slot.used).slice(0, 34);
   configured.forEach((slot, i) => {
     const row =
       document.createElement("div");
@@ -365,8 +367,8 @@ function renderSchedules(slots) {
     container.appendChild(row);
   });
   if (!configured.length) { const empty = document.createElement("div"); empty.className = "schedule-empty"; empty.textContent = "Nenhum horário cadastrado. Toque em Adicionar horário."; container.appendChild(empty); }
-  document.getElementById("slotCount").textContent = `${configured.length} de 8 horários`;
-  document.getElementById("addSlot").disabled = configured.length >= 8;
+  document.getElementById("slotCount").textContent = `${configured.length} de 34 horários`;
+  document.getElementById("addSlot").disabled = configured.length >= 34;
 }
 
 async function update() {
@@ -565,8 +567,7 @@ String uint64Text(uint64_t value) {
     buffer,
     sizeof(buffer),
     "%llu",
-    (unsigned long long)value
-  );
+    (unsigned long long)value);
 
   return String(buffer);
 }
@@ -601,8 +602,7 @@ String jsonQuote(const String& value) {
 
 String slotTime(
   uint8_t hour,
-  uint8_t minute
-) {
+  uint8_t minute) {
 
   char buffer[6];
 
@@ -611,8 +611,7 @@ String slotTime(
     sizeof(buffer),
     "%02u:%02u",
     hour,
-    minute
-  );
+    minute);
 
   return String(buffer);
 }
@@ -641,8 +640,7 @@ String currentTimeText() {
     buffer,
     sizeof(buffer),
     "%d/%m/%Y %H:%M:%S",
-    &timeinfo
-  );
+    &timeinfo);
 
   return String(buffer);
 }
@@ -659,9 +657,7 @@ uint32_t currentMinutes() {
   struct tm timeinfo;
   localtime_r(&now, &timeinfo);
 
-  return
-    (uint32_t)timeinfo.tm_hour * 60UL +
-    timeinfo.tm_min;
+  return (uint32_t)timeinfo.tm_hour * 60UL + timeinfo.tm_min;
 }
 
 // ============================================================
@@ -679,12 +675,9 @@ void addHistory(const char* text) {
   strncpy(
     event.text,
     text,
-    sizeof(event.text) - 1
-  );
+    sizeof(event.text) - 1);
 
-  event.text[
-    sizeof(event.text) - 1
-  ] = '\0';
+  event.text[sizeof(event.text) - 1] = '\0';
 
   historyHead =
     (historyHead + 1) % HISTORY_SIZE;
@@ -697,8 +690,7 @@ void addHistory(const char* text) {
 // ------------------------------------------------------------
 
 String eventTime(
-  const HistoryEvent& event
-) {
+  const HistoryEvent& event) {
 
   if (!event.timeValid) return "--:--:--";
   struct tm local;
@@ -726,8 +718,7 @@ void relayWrite(bool state) {
 
   digitalWrite(
     RELAY_PIN,
-    output ? HIGH : LOW
-  );
+    output ? HIGH : LOW);
 }
 
 // ============================================================
@@ -810,8 +801,7 @@ void saveSlots() {
 
   preferences.begin(
     "hidro",
-    false
-  );
+    false);
 
   for (uint8_t i = 0;
        i < SLOT_COUNT;
@@ -822,33 +812,27 @@ void saveSlots() {
 
     preferences.putBool(
       (key + "us").c_str(),
-      slots[i].used
-    );
+      slots[i].used);
 
     preferences.putBool(
       (key + "en").c_str(),
-      slots[i].enabled
-    );
+      slots[i].enabled);
 
     preferences.putUChar(
       (key + "sh").c_str(),
-      slots[i].startHour
-    );
+      slots[i].startHour);
 
     preferences.putUChar(
       (key + "sm").c_str(),
-      slots[i].startMinute
-    );
+      slots[i].startMinute);
 
     preferences.putUChar(
       (key + "eh").c_str(),
-      slots[i].stopHour
-    );
+      slots[i].stopHour);
 
     preferences.putUChar(
       (key + "em").c_str(),
-      slots[i].stopMinute
-    );
+      slots[i].stopMinute);
   }
 
   preferences.end();
@@ -860,8 +844,7 @@ void loadConfiguration() {
 
   preferences.begin(
     "hidro",
-    true
-  );
+    true);
 
   for (uint8_t i = 0;
        i < SLOT_COUNT;
@@ -875,41 +858,34 @@ void loadConfiguration() {
     slots[i].enabled =
       preferences.getBool(
         (key + "en").c_str(),
-        false
-      );
+        false);
 
     slots[i].startHour =
       preferences.getUChar(
         (key + "sh").c_str(),
-        0
-      );
+        0);
 
     slots[i].startMinute =
       preferences.getUChar(
         (key + "sm").c_str(),
-        0
-      );
+        0);
 
     slots[i].stopHour =
       preferences.getUChar(
         (key + "eh").c_str(),
-        0
-      );
+        0);
 
     slots[i].stopMinute =
       preferences.getUChar(
         (key + "em").c_str(),
-        0
-      );
+        0);
 
     // Migra a configuração antiga: horários ativos permanecem; os oito
     // valores padrão antigos passam a representar slots ainda vazios.
     if (preferences.isKey((key + "us").c_str())) {
       slots[i].used = preferences.getBool((key + "us").c_str(), false);
     } else {
-      const bool oldDefault = hasSavedTimes &&
-        slots[i].startHour == 8 && slots[i].startMinute == 0 &&
-        slots[i].stopHour == 8 && slots[i].stopMinute == 15;
+      const bool oldDefault = hasSavedTimes && slots[i].startHour == 8 && slots[i].startMinute == 0 && slots[i].stopHour == 8 && slots[i].stopMinute == 15;
       slots[i].used = slots[i].enabled || (hasSavedTimes && !oldDefault);
     }
   }
@@ -941,10 +917,7 @@ void updateLevel() {
   }
 
   if (
-    levelCandidateLow != waterLow &&
-    millis() - levelCandidateSince >=
-      LEVEL_DEBOUNCE_MS
-  ) {
+    levelCandidateLow != waterLow && millis() - levelCandidateSince >= LEVEL_DEBOUNCE_MS) {
 
     waterLow =
       levelCandidateLow;
@@ -952,8 +925,7 @@ void updateLevel() {
     if (waterLow) {
 
       addHistory(
-        "Nivel de agua baixo"
-      );
+        "Nivel de agua baixo");
 
       // Segurança:
       // não permitir bomba funcionando
@@ -963,8 +935,7 @@ void updateLevel() {
     } else {
 
       addHistory(
-        "Nivel de agua normal"
-      );
+        "Nivel de agua normal");
     }
   }
 }
@@ -994,9 +965,7 @@ void serviceBuzzer() {
 void updateDht() {
 
   if (
-    millis() - lastDhtRead <
-    DHT_INTERVAL_MS
-  ) {
+    millis() - lastDhtRead < DHT_INTERVAL_MS) {
     return;
   }
 
@@ -1010,9 +979,7 @@ void updateDht() {
     dht.readTemperature();
 
   if (
-    isnan(h) ||
-    isnan(t)
-  ) {
+    isnan(h) || isnan(t)) {
 
     dhtOk = false;
 
@@ -1050,20 +1017,16 @@ bool scheduleWantsPump() {
     }
 
     uint32_t start =
-      slots[i].startHour * 60UL +
-      slots[i].startMinute;
+      slots[i].startHour * 60UL + slots[i].startMinute;
 
     uint32_t stop =
-      slots[i].stopHour * 60UL +
-      slots[i].stopMinute;
+      slots[i].stopHour * 60UL + slots[i].stopMinute;
 
     // Horário normal: 08:00 -> 09:00
     if (start < stop) {
 
       if (
-        now >= start &&
-        now < stop
-      ) {
+        now >= start && now < stop) {
         return true;
       }
 
@@ -1074,12 +1037,9 @@ bool scheduleWantsPump() {
     else if (start > stop) {
 
       if (
-        now >= start ||
-        now < stop
-      ) {
+        now >= start || now < stop) {
         return true;
       }
-
     }
 
     // start == stop:
@@ -1112,22 +1072,18 @@ void serviceControl() {
   if (manualMode) {
 
     if (
-      millis() - manualStartedAt >=
-      MANUAL_TIMEOUT_MS
-    ) {
+      millis() - manualStartedAt >= MANUAL_TIMEOUT_MS) {
 
       manualMode = false;
       manualRequest = false;
 
       addHistory(
-        "Modo manual expirou"
-      );
+        "Modo manual expirou");
 
     } else {
 
       setPump(
-        manualRequest
-      );
+        manualRequest);
 
       return;
     }
@@ -1162,43 +1118,35 @@ void startAccessPoint() {
   bool result =
     WiFi.softAP(
       "Hidroponia-ESP32",
-      AP_PASSWORD
-    );
+      AP_PASSWORD);
 
   Serial.println();
   Serial.println(
-    "================================"
-  );
+    "================================");
 
   Serial.println(
-    "MODO AP DO ESP32"
-  );
+    "MODO AP DO ESP32");
 
   Serial.println(
-    "================================"
-  );
+    "================================");
 
   if (result) {
 
     Serial.print(
-      "Rede: Hidroponia-ESP32"
-    );
+      "Rede: Hidroponia-ESP32");
 
     Serial.println();
 
     Serial.print(
-      "IP do AP: "
-    );
+      "IP do AP: ");
 
     Serial.println(
-      WiFi.softAPIP()
-    );
+      WiFi.softAPIP());
 
   } else {
 
     Serial.println(
-      "Erro ao iniciar AP."
-    );
+      "Erro ao iniciar AP.");
   }
 }
 
@@ -1218,12 +1166,10 @@ void serviceWiFi() {
       status;
 
     Serial.print(
-      "Status Wi-Fi: "
-    );
+      "Status Wi-Fi: ");
 
     Serial.println(
-      (int)status
-    );
+      (int)status);
   }
 
   // Conectado
@@ -1237,44 +1183,35 @@ void serviceWiFi() {
 
       Serial.println();
       Serial.println(
-        "================================"
-      );
+        "================================");
 
       Serial.println(
-        "WI-FI CONECTADO!"
-      );
+        "WI-FI CONECTADO!");
 
       Serial.print(
-        "IP do ESP32: "
-      );
+        "IP do ESP32: ");
 
       Serial.println(
-        WiFi.localIP()
-      );
+        WiFi.localIP());
 
       Serial.print(
-        "Gateway: "
-      );
+        "Gateway: ");
 
       Serial.println(
-        WiFi.gatewayIP()
-      );
+        WiFi.gatewayIP());
 
       Serial.print(
-        "Mascara: "
-      );
+        "Mascara: ");
 
       Serial.println(
-        WiFi.subnetMask()
-      );
+        WiFi.subnetMask());
       Serial.print("RSSI: ");
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
       if (apMode) Serial.println("AP de emergência continua ativo para acesso local.");
 
       Serial.println(
-        "================================"
-      );
+        "================================");
     }
 
     return;
@@ -1286,10 +1223,16 @@ void serviceWiFi() {
     loggedDisconnected = true;
   }
   if (!apMode && (uint32_t)(millis() - wifiStartedAt) >= WIFI_TIMEOUT_MS) startAccessPoint();
-  if ((uint32_t)(millis() - lastWifiAttempt) >= WIFI_RETRY_INTERVAL_MS) {
+  // WiFi.begin() altera a configuração STA e não deve ser chamado enquanto
+  // o driver ainda está em WL_IDLE_STATUS/WL_CONNECTING. O core ESP32 emite
+  // "sta is connecting, cannot set config" se isso ocorrer. O begin inicial
+  // já guardou SSID/senha; para novas tentativas use reconnect apenas depois
+  // que o estado indicar desconexão.
+  if (status == WL_DISCONNECTED &&
+      (uint32_t)(millis() - lastWifiAttempt) >= WIFI_RETRY_INTERVAL_MS) {
     lastWifiAttempt = millis();
     Serial.println("Nova tentativa de conexão Wi-Fi.");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.reconnect();
   }
 }
 
@@ -1312,8 +1255,7 @@ String makeToken() {
     sizeof(buffer),
     "%08lx%08lx",
     (unsigned long)a,
-    (unsigned long)b
-  );
+    (unsigned long)b);
 
   return String(buffer);
 }
@@ -1321,41 +1263,34 @@ String makeToken() {
 // ------------------------------------------------------------
 
 bool requireAuth(
-  bool redirect = false
-) {
+  bool redirect = false) {
 
   if (
-    sessionToken.length() == 0
-  ) {
+    sessionToken.length() == 0) {
 
     if (redirect) {
 
       server.sendHeader(
         "Location",
-        "/login"
-      );
+        "/login");
 
       server.send(
         302,
         "text/plain",
-        ""
-      );
+        "");
     } else {
 
       server.send(
         401,
         "application/json",
-        "{\"ok\":false,\"error\":\"Nao autenticado\"}"
-      );
+        "{\"ok\":false,\"error\":\"Nao autenticado\"}");
     }
 
     return false;
   }
 
   if (
-    millis() - sessionLastActivity >
-    SESSION_TIMEOUT_MS
-  ) {
+    millis() - sessionLastActivity > SESSION_TIMEOUT_MS) {
 
     sessionToken = "";
 
@@ -1363,22 +1298,19 @@ bool requireAuth(
 
       server.sendHeader(
         "Location",
-        "/login"
-      );
+        "/login");
 
       server.send(
         302,
         "text/plain",
-        ""
-      );
+        "");
 
     } else {
 
       server.send(
         401,
         "application/json",
-        "{\"ok\":false,\"error\":\"Sessao expirada\"}"
-      );
+        "{\"ok\":false,\"error\":\"Sessao expirada\"}");
     }
 
     return false;
@@ -1388,33 +1320,28 @@ bool requireAuth(
     server.header("Cookie");
 
   String expected =
-    "HIDROSESSID=" +
-    sessionToken;
+    "HIDROSESSID=" + sessionToken;
 
   if (
-    cookie.indexOf(expected) == -1
-  ) {
+    cookie.indexOf(expected) == -1) {
 
     if (redirect) {
 
       server.sendHeader(
         "Location",
-        "/login"
-      );
+        "/login");
 
       server.send(
         302,
         "text/plain",
-        ""
-      );
+        "");
 
     } else {
 
       server.send(
         401,
         "application/json",
-        "{\"ok\":false,\"error\":\"Nao autenticado\"}"
-      );
+        "{\"ok\":false,\"error\":\"Nao autenticado\"}");
     }
 
     return false;
@@ -1435,8 +1362,7 @@ void handleLoginPage() {
   server.send_P(
     200,
     "text/html; charset=utf-8",
-    LOGIN_HTML
-  );
+    LOGIN_HTML);
 }
 
 // ============================================================
@@ -1452,9 +1378,7 @@ void handleLogin() {
     server.arg("password");
 
   if (
-    user == WEB_USER &&
-    password == WEB_PASSWORD
-  ) {
+    user == WEB_USER && password == WEB_PASSWORD) {
 
     sessionToken =
       makeToken();
@@ -1464,24 +1388,19 @@ void handleLogin() {
 
     server.sendHeader(
       "Set-Cookie",
-      "HIDROSESSID=" +
-      sessionToken +
-      "; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800"
-    );
+      "HIDROSESSID=" + sessionToken + "; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800");
 
     server.send(
       200,
       "application/json",
-      "{\"ok\":true}"
-    );
+      "{\"ok\":true}");
 
   } else {
 
     server.send(
       401,
       "application/json",
-      "{\"ok\":false,\"error\":\"Credenciais invalidas\"}"
-    );
+      "{\"ok\":false,\"error\":\"Credenciais invalidas\"}");
   }
 }
 
@@ -1503,14 +1422,12 @@ void handleLogout() {
 
   server.sendHeader(
     "Set-Cookie",
-    "HIDROSESSID=deleted; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
-  );
+    "HIDROSESSID=deleted; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
 
   server.send(
     200,
     "application/json",
-    "{\"ok\":true}"
-  );
+    "{\"ok\":true}");
 }
 
 // ============================================================
@@ -1525,7 +1442,7 @@ void handleStatus() {
 
   String json;
 
-  json.reserve(3000);
+  json.reserve(5000);
 
   json +=
     F("{\"ok\":true,\"pump\":");
@@ -1554,20 +1471,10 @@ void handleStatus() {
   uint32_t remaining = 0;
 
   if (
-    manualMode &&
-    (uint32_t)(
-      millis() - manualStartedAt
-    ) < MANUAL_TIMEOUT_MS
-  ) {
+    manualMode && (uint32_t)(millis() - manualStartedAt) < MANUAL_TIMEOUT_MS) {
 
     remaining =
-      (
-        MANUAL_TIMEOUT_MS -
-        (
-          millis() -
-          manualStartedAt
-        )
-      ) / 1000UL;
+      (MANUAL_TIMEOUT_MS - (millis() - manualStartedAt)) / 1000UL;
   }
 
   json +=
@@ -1583,8 +1490,7 @@ void handleStatus() {
     json +=
       String(
         temperatureC,
-        1
-      );
+        1);
   } else {
     json +=
       F("null");
@@ -1597,8 +1503,7 @@ void handleStatus() {
     json +=
       String(
         humidityPct,
-        1
-      );
+        1);
   } else {
     json +=
       F("null");
@@ -1615,17 +1520,14 @@ void handleStatus() {
 
   json +=
     uint64Text(
-      liveTotalPumpMillis() /
-      60000ULL
-    );
+      liveTotalPumpMillis() / 60000ULL);
 
   json +=
     F(",\"now\":");
 
   json +=
     jsonQuote(
-      currentTimeText()
-    );
+      currentTimeText());
 
   json +=
     F(",\"wifi\":");
@@ -1635,32 +1537,34 @@ void handleStatus() {
       ? F("true")
       : F("false");
 
-  json += F(",\"apMode\":"); json += apMode ? F("true") : F("false");
-  json += F(",\"rssi\":"); json += WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) : F("null");
-  json += F(",\"timeSynced\":"); json += timeIsValid() ? F("true") : F("false");
-  json += F(",\"dhtOk\":"); json += dhtOk ? F("true") : F("false");
-  json += F(",\"cloud\":"); json += cloudOnline ? F("true") : F("false");
-  json += F(",\"ble\":"); json += bleConnected ? F("true") : F("false");
+  json += F(",\"apMode\":");
+  json += apMode ? F("true") : F("false");
+  json += F(",\"rssi\":");
+  json += WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) : F("null");
+  json += F(",\"timeSynced\":");
+  json += timeIsValid() ? F("true") : F("false");
+  json += F(",\"dhtOk\":");
+  json += dhtOk ? F("true") : F("false");
+  json += F(",\"cloud\":");
+  json += cloudOnline ? F("true") : F("false");
+  json += F(",\"ble\":");
+  json += bleConnected ? F("true") : F("false");
 
   json +=
     F(",\"ip\":");
 
   if (
-    WiFi.status() ==
-    WL_CONNECTED
-  ) {
+    WiFi.status() == WL_CONNECTED) {
 
     json +=
       jsonQuote(
-        WiFi.localIP().toString()
-      );
+        WiFi.localIP().toString());
 
   } else {
 
     json +=
       jsonQuote(
-        WiFi.softAPIP().toString()
-      );
+        WiFi.softAPIP().toString());
   }
 
   // ----------------------------------------------------------
@@ -1673,8 +1577,7 @@ void handleStatus() {
   for (
     uint8_t i = 0;
     i < SLOT_COUNT;
-    i++
-  ) {
+    i++) {
 
     if (i) {
       json += ',';
@@ -1692,9 +1595,7 @@ void handleStatus() {
       jsonQuote(
         slotTime(
           slots[i].startHour,
-          slots[i].startMinute
-        )
-      );
+          slots[i].startMinute));
 
     json +=
       F(",\"off\":");
@@ -1703,9 +1604,7 @@ void handleStatus() {
       jsonQuote(
         slotTime(
           slots[i].stopHour,
-          slots[i].stopMinute
-        )
-      );
+          slots[i].stopMinute));
 
     json +=
       '}';
@@ -1722,34 +1621,28 @@ void handleStatus() {
   for (
     uint8_t i = 0;
     i < historyCount;
-    i++
-  ) {
+    i++) {
 
     if (i) {
       json += ',';
     }
 
     const HistoryEvent& event =
-      history[
-        (first + i) %
-        HISTORY_SIZE
-      ];
+      history[(first + i) % HISTORY_SIZE];
 
     json +=
       F("{\"time\":");
 
     json +=
       jsonQuote(
-        eventTime(event)
-      );
+        eventTime(event));
 
     json +=
       F(",\"text\":");
 
     json +=
       jsonQuote(
-        String(event.text)
-      );
+        String(event.text));
 
     json +=
       '}';
@@ -1760,14 +1653,12 @@ void handleStatus() {
 
   server.sendHeader(
     "Cache-Control",
-    "no-store"
-  );
+    "no-store");
 
   server.send(
     200,
     "application/json; charset=utf-8",
-    json
-  );
+    json);
 }
 
 // ============================================================
@@ -1777,17 +1668,10 @@ void handleStatus() {
 bool parseHHMM(
   const String& value,
   uint8_t& hour,
-  uint8_t& minute
-) {
+  uint8_t& minute) {
 
   if (
-    value.length() != 5 ||
-    value[2] != ':' ||
-    !isDigit(value[0]) ||
-    !isDigit(value[1]) ||
-    !isDigit(value[3]) ||
-    !isDigit(value[4])
-  ) {
+    value.length() != 5 || value[2] != ':' || !isDigit(value[0]) || !isDigit(value[1]) || !isDigit(value[3]) || !isDigit(value[4])) {
 
     return false;
   }
@@ -1802,9 +1686,7 @@ bool parseHHMM(
       .substring(3, 5)
       .toInt();
 
-  return
-    hour <= 23 &&
-    minute <= 59;
+  return hour <= 23 && minute <= 59;
 }
 
 // ============================================================
@@ -1817,23 +1699,19 @@ void handleSchedules() {
     return;
   }
 
-  ScheduleSlot candidate[
-    SLOT_COUNT
-  ];
+  ScheduleSlot candidate[SLOT_COUNT];
 
   memcpy(
     candidate,
     slots,
-    sizeof(slots)
-  );
+    sizeof(slots));
 
   const bool scheduleV2 = server.hasArg("scheduleV2");
 
   for (
     uint8_t i = 0;
     i < SLOT_COUNT;
-    i++
-  ) {
+    i++) {
 
     uint8_t h1;
     uint8_t m1;
@@ -1854,20 +1732,16 @@ void handleSchedules() {
       !parseHHMM(
         server.arg(onKey),
         h1,
-        m1
-      ) ||
-      !parseHHMM(
+        m1)
+      || !parseHHMM(
         server.arg(offKey),
         h2,
-        m2
-      )
-    ) {
+        m2)) {
 
       server.send(
         400,
         "application/json",
-        "{\"ok\":false,\"error\":\"Horario invalido\"}"
-      );
+        "{\"ok\":false,\"error\":\"Horario invalido\"}");
 
       return;
     }
@@ -1875,8 +1749,8 @@ void handleSchedules() {
     String usedKey = "used" + String(i);
     const bool legacyUsed = server.hasArg(enKey) || h1 != h2 || m1 != m2;
     candidate[i].used = scheduleV2
-      ? server.arg(usedKey) == "1"
-      : legacyUsed;
+                          ? server.arg(usedKey) == "1"
+                          : legacyUsed;
     candidate[i].enabled = candidate[i].used && server.hasArg(enKey);
 
     candidate[i].startHour =
@@ -1900,20 +1774,67 @@ void handleSchedules() {
   memcpy(
     slots,
     candidate,
-    sizeof(slots)
-  );
+    sizeof(slots));
 
   saveSlots();
 
   addHistory(
-    "Horarios atualizados"
-  );
+    "Horarios atualizados");
 
   server.send(
     200,
     "application/json",
-    "{\"ok\":true}"
-  );
+    "{\"ok\":true}");
+}
+
+// Agenda compacta para BLE: 10 caracteres por horário usado
+// = usado(1) ativo(1) HHMM(ligar) HHMM(desligar). No máximo 340 caracteres.
+String buildScheduleCompact() {
+  String out;
+  out.reserve(SLOT_COUNT * 10 + 1);
+  for (uint8_t i = 0; i < SLOT_COUNT; ++i) {
+    if (!slots[i].used) continue;
+    char item[11];
+    snprintf(item, sizeof(item), "1%c%02u%02u%02u%02u",
+             slots[i].enabled ? '1' : '0',
+             slots[i].startHour, slots[i].startMinute,
+             slots[i].stopHour, slots[i].stopMinute);
+    out += item;
+  }
+  return out;
+}
+
+bool parseCompactSchedule(const char* text, ScheduleSlot* out, String& error) {
+  for (uint8_t i = 0; i < SLOT_COUNT; ++i) out[i] = { false, false, 0, 0, 0, 0 };
+  const size_t len = text ? strlen(text) : 0;
+  if (len % 10 != 0 || len / 10 > SLOT_COUNT) {
+    error = "Agenda compacta invalida";
+    return false;
+  }
+  for (size_t i = 0; i < len / 10; ++i) {
+    const char* p = text + i * 10;
+    for (uint8_t k = 0; k < 10; ++k) {
+      if (p[k] < '0' || p[k] > '9') {
+        error = "Formato de horario invalido";
+        return false;
+      }
+    }
+    const uint8_t sh = (p[2] - '0') * 10 + (p[3] - '0');
+    const uint8_t sm = (p[4] - '0') * 10 + (p[5] - '0');
+    const uint8_t eh = (p[6] - '0') * 10 + (p[7] - '0');
+    const uint8_t em = (p[8] - '0') * 10 + (p[9] - '0');
+    if (sh > 23 || eh > 23 || sm > 59 || em > 59) {
+      error = "Formato de horario invalido";
+      return false;
+    }
+    const bool used = p[0] == '1';
+    if (used && sh == eh && sm == em) {
+      error = "Os horarios para ligar e desligar precisam ser diferentes";
+      return false;
+    }
+    out[i] = { used, used && p[1] == '1', sh, sm, eh, em };
+  }
+  return true;
 }
 
 // ============================================================
@@ -1941,35 +1862,68 @@ void handleControl() {
 // dentro de setPump(), que é a barreira final antes de escrever o GPIO.
 bool processAction(const char* action, JsonVariantConst payload, String& error) {
   if (strcmp(action, "on") == 0) {
-    if (waterLow) { error = "Nivel baixo: comando recusado pelo ESP32"; return false; }
-    manualMode = true; manualRequest = true; manualStartedAt = millis();
+    if (waterLow) {
+      error = "Nivel baixo: comando recusado pelo ESP32";
+      return false;
+    }
+    manualMode = true;
+    manualRequest = true;
+    manualStartedAt = millis();
     addHistory("Modo manual solicitado");
   } else if (strcmp(action, "off") == 0) {
-    manualMode = true; manualRequest = false; manualStartedAt = millis();
+    manualMode = true;
+    manualRequest = false;
+    manualStartedAt = millis();
     addHistory("Modo manual: desligar solicitado");
   } else if (strcmp(action, "auto") == 0) {
-    manualMode = false; manualRequest = false;
+    manualMode = false;
+    manualRequest = false;
     addHistory("Modo automatico ativado");
   } else if (strcmp(action, "schedules") == 0) {
-    if (!payload.is<JsonArrayConst>() || payload.as<JsonArrayConst>().size() != SLOT_COUNT) { error = "A agenda precisa conter exatamente oito horarios"; return false; }
     ScheduleSlot candidate[SLOT_COUNT];
-    for (uint8_t i = 0; i < SLOT_COUNT; ++i) {
-      JsonObjectConst item = payload[i].as<JsonObjectConst>();
-      uint8_t sh, sm, eh, em;
-      if (!item["enabled"].is<bool>() || (item.containsKey("used") && !item["used"].is<bool>()) || !parseHHMM(item["start"].as<String>(), sh, sm) || !parseHHMM(item["stop"].as<String>(), eh, em)) { error = "Formato de horario invalido"; return false; }
-      const bool used = item["used"].is<bool>() ? item["used"].as<bool>() : item["enabled"].as<bool>();
-      if (used && sh == eh && sm == em) { error = "Os horarios para ligar e desligar precisam ser diferentes"; return false; }
-      candidate[i] = {used, used && item["enabled"].as<bool>(), sh, sm, eh, em};
+    if (payload.is<const char*>()) {
+      if (!parseCompactSchedule(payload.as<const char*>(), candidate, error)) return false;
+    } else {
+      if (!payload.is<JsonArrayConst>() || payload.as<JsonArrayConst>().size() != SLOT_COUNT) {
+        error = "A agenda precisa conter exatamente 34 horarios";
+        return false;
+      }
+      for (uint8_t i = 0; i < SLOT_COUNT; ++i) {
+        JsonObjectConst item = payload[i].as<JsonObjectConst>();
+        uint8_t sh, sm, eh, em;
+        if (!item["enabled"].is<bool>() || (item.containsKey("used") && !item["used"].is<bool>()) || !parseHHMM(item["start"].as<String>(), sh, sm) || !parseHHMM(item["stop"].as<String>(), eh, em)) {
+          error = "Formato de horario invalido";
+          return false;
+        }
+        const bool used = item["used"].is<bool>() ? item["used"].as<bool>() : item["enabled"].as<bool>();
+        if (used && sh == eh && sm == em) {
+          error = "Os horarios para ligar e desligar precisam ser diferentes";
+          return false;
+        }
+        candidate[i] = { used, used && item["enabled"].as<bool>(), sh, sm, eh, em };
+      }
     }
-    memcpy(slots, candidate, sizeof(slots)); saveSlots(); addHistory("Programacao atualizada");
-  } else { error = "Comando desconhecido"; return false; }
+    memcpy(slots, candidate, sizeof(slots));
+    saveSlots();
+    addHistory("Programacao atualizada");
+  } else {
+    error = "Comando desconhecido";
+    return false;
+  }
   serviceControl();
   return true;
 }
 
 class HydroBleServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer*) override { bleConnected = true; Serial.println("BLE: cliente conectado."); }
-  void onDisconnect(BLEServer* server) override { bleConnected = false; Serial.println("BLE: cliente desconectado; anunciando novamente."); server->startAdvertising(); }
+  void onConnect(BLEServer*) override {
+    bleConnected = true;
+    Serial.println("BLE: cliente conectado.");
+  }
+  void onDisconnect(BLEServer* server) override {
+    bleConnected = false;
+    Serial.println("BLE: cliente desconectado; anunciando novamente.");
+    server->startAdvertising();
+  }
 };
 
 class HydroBleCommandCallbacks : public BLECharacteristicCallbacks {
@@ -1978,7 +1932,9 @@ class HydroBleCommandCallbacks : public BLECharacteristicCallbacks {
     const size_t valueLength = value.length();
     if (valueLength == 0 || valueLength >= sizeof(bleCommandBuffer)) return;
     portENTER_CRITICAL(&bleMux);
-    memcpy(bleCommandBuffer, value.c_str(), valueLength); bleCommandBuffer[valueLength] = '\0'; bleCommandPending = true;
+    memcpy(bleCommandBuffer, value.c_str(), valueLength);
+    bleCommandBuffer[valueLength] = '\0';
+    bleCommandPending = true;
     portEXIT_CRITICAL(&bleMux);
   }
 };
@@ -1996,49 +1952,93 @@ void startBle() {
   bleAckCharacteristic = service->createCharacteristic(BLE_ACK_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   bleAckCharacteristic->addDescriptor(new BLE2902());
   bleAckCharacteristic->setValue("{\"ready\":true}");
+  bleScheduleCharacteristic = service->createCharacteristic(BLE_SCHEDULE_UUID, BLECharacteristic::PROPERTY_READ);
+  bleScheduleCharacteristic->setValue("");
   service->start();
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
-  advertising->addServiceUUID(BLE_SERVICE_UUID); advertising->setScanResponse(true); advertising->start();
+  advertising->addServiceUUID(BLE_SERVICE_UUID);
+  advertising->setScanResponse(true);
+  advertising->start();
   Serial.println("BLE iniciado: Hidroponia-ESP32.");
 }
 
 String buildStatusJson() {
-  StaticJsonDocument<4096> doc;
-  doc["pump"] = pumpOn; doc["low"] = waterLow; doc["manual"] = manualMode;
-  doc["temp"] = dhtOk ? temperatureC : NAN; doc["hum"] = dhtOk ? humidityPct : NAN; doc["dhtOk"] = dhtOk;
-  doc["cycles"] = pumpCycles; doc["totalMin"] = (uint32_t)(liveTotalPumpMillis() / 60000ULL);
-  doc["wifi"] = WiFi.status() == WL_CONNECTED; doc["apMode"] = apMode; doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-  doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0; doc["timeSynced"] = timeIsValid(); doc["now"] = currentTimeText(); doc["cloud"] = cloudOnline; doc["ble"] = bleConnected;
-  // Agenda em tuplas compactas para caber no limite de atributo GATT.
-  JsonArray schedule = doc.createNestedArray("slots");
-  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonArray s = schedule.createNestedArray(); s.add(slots[i].used); s.add(slots[i].enabled); s.add(slotTime(slots[i].startHour, slots[i].startMinute)); s.add(slotTime(slots[i].stopHour, slots[i].stopMinute)); }
-  String output; serializeJson(doc, output); return output;
+  StaticJsonDocument<1024> doc;
+  doc["pump"] = pumpOn;
+  doc["low"] = waterLow;
+  doc["manual"] = manualMode;
+  doc["temp"] = dhtOk ? temperatureC : NAN;
+  doc["hum"] = dhtOk ? humidityPct : NAN;
+  doc["dhtOk"] = dhtOk;
+  doc["cycles"] = pumpCycles;
+  doc["totalMin"] = (uint32_t)(liveTotalPumpMillis() / 60000ULL);
+  doc["wifi"] = WiFi.status() == WL_CONNECTED;
+  doc["apMode"] = apMode;
+  doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  doc["timeSynced"] = timeIsValid();
+  doc["now"] = currentTimeText();
+  doc["cloud"] = cloudOnline;
+  doc["ble"] = bleConnected;
+  // A agenda vai em uma característica BLE própria (texto compacto), para o status ficar abaixo do limite GATT.
+  String output;
+  serializeJson(doc, output);
+  return output;
 }
 
 void serviceBle() {
   if (bleStatusCharacteristic != nullptr) {
     static uint32_t lastStatus = 0;
-    if ((uint32_t)(millis() - lastStatus) >= 1000) { lastStatus = millis(); String status = buildStatusJson(); bleStatusCharacteristic->setValue(status.c_str()); }
+    if ((uint32_t)(millis() - lastStatus) >= 1000) {
+      lastStatus = millis();
+      String status = buildStatusJson();
+      bleStatusCharacteristic->setValue(status.c_str());
+      if (bleScheduleCharacteristic != nullptr) {
+        String schedule = buildScheduleCompact();
+        bleScheduleCharacteristic->setValue(schedule.c_str());
+      }
+    }
   }
   if (!bleCommandPending) return;
   char request[sizeof(bleCommandBuffer)];
-  portENTER_CRITICAL(&bleMux); strncpy(request, bleCommandBuffer, sizeof(request) - 1); request[sizeof(request) - 1] = '\0'; bleCommandPending = false; portEXIT_CRITICAL(&bleMux);
-  DynamicJsonDocument doc(1024); DeserializationError parseError = deserializeJson(doc, request);
-  String response; String failure;
+  portENTER_CRITICAL(&bleMux);
+  strncpy(request, bleCommandBuffer, sizeof(request) - 1);
+  request[sizeof(request) - 1] = '\0';
+  bleCommandPending = false;
+  portEXIT_CRITICAL(&bleMux);
+  DynamicJsonDocument doc(1024);
+  DeserializationError parseError = deserializeJson(doc, request);
+  String response;
+  String failure;
   if (parseError || !doc["id"].is<const char*>() || !doc["action"].is<const char*>()) response = "{\"ok\":false,\"error\":\"JSON ou campos invalidos\"}";
   else {
-    const String id = doc["id"].as<String>(); const String action = doc["action"].as<String>();
-    preferences.begin("hidro", true); String lastBleId = preferences.getString("lastBle", ""); preferences.end();
+    const String id = doc["id"].as<String>();
+    const String action = doc["action"].as<String>();
+    preferences.begin("hidro", true);
+    String lastBleId = preferences.getString("lastBle", "");
+    preferences.end();
     bool ok;
-    if (lastBleId == id) ok = true; // reenvio BLE: confirma sem executar de novo
+    if (lastBleId == id) ok = true;  // reenvio BLE: confirma sem executar de novo
     else {
       ok = processAction(action.c_str(), doc["payload"].as<JsonVariantConst>(), failure);
-      if (ok) { preferences.begin("hidro", false); preferences.putString("lastBle", id); preferences.end(); }
+      if (ok) {
+        preferences.begin("hidro", false);
+        preferences.putString("lastBle", id);
+        preferences.end();
+      }
     }
-    StaticJsonDocument<256> ack; ack["id"] = id; ack["ok"] = ok; ack["executed"] = ok; if (!ok) ack["error"] = failure;
-    serializeJson(ack, response); Serial.printf("BLE comando %s: %s\n", action.c_str(), ok ? "confirmado" : "recusado");
+    StaticJsonDocument<256> ack;
+    ack["id"] = id;
+    ack["ok"] = ok;
+    ack["executed"] = ok;
+    if (!ok) ack["error"] = failure;
+    serializeJson(ack, response);
+    Serial.printf("BLE comando %s: %s\n", action.c_str(), ok ? "confirmado" : "recusado");
   }
-  if (bleAckCharacteristic != nullptr) { bleAckCharacteristic->setValue(response.c_str()); bleAckCharacteristic->notify(); }
+  if (bleAckCharacteristic != nullptr) {
+    bleAckCharacteristic->setValue(response.c_str());
+    bleAckCharacteristic->notify();
+  }
 }
 
 bool cloudConfigured() {
@@ -2046,30 +2046,61 @@ bool cloudConfigured() {
 }
 
 bool cloudRequest(const char* method, const char* path, const String& body, String& responseBody) {
-  WiFiClientSecure client; client.setCACert(CLOUD_ROOT_CA);
-  HTTPClient http; http.setTimeout(2500);
+  WiFiClientSecure client;
+  client.setCACert(CLOUD_ROOT_CA);
+  HTTPClient http;
+  http.setTimeout(2500);
   const String url = String(CLOUD_BASE_URL) + path;
   if (!http.begin(client, url)) return false;
   http.addHeader("Authorization", String("Bearer ") + CLOUD_DEVICE_TOKEN);
   http.addHeader("X-Device-ID", CLOUD_DEVICE_ID);
   if (strcmp(method, "GET") != 0) http.addHeader("Content-Type", "application/json");
   int code = strcmp(method, "GET") == 0 ? http.GET() : http.sendRequest(method, body);
-  responseBody = http.getString(); http.end();
+  responseBody = http.getString();
+  http.end();
   return code >= 200 && code < 300;
 }
 
 String buildTelemetryJson() {
-  StaticJsonDocument<4096> doc;
-  doc["pump"] = pumpOn; doc["low"] = waterLow; doc["manual"] = manualMode;
-  if (dhtOk) { doc["temp"] = temperatureC; doc["hum"] = humidityPct; } else { doc["temp"] = nullptr; doc["hum"] = nullptr; }
-  doc["dhtOk"] = dhtOk; doc["cycles"] = pumpCycles; doc["totalMin"] = (uint32_t)(liveTotalPumpMillis() / 60000ULL);
-  doc["wifi"] = WiFi.status() == WL_CONNECTED; doc["apMode"] = apMode; doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-  doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0; doc["timeSynced"] = timeIsValid(); doc["now"] = currentTimeText();
+  DynamicJsonDocument doc(8192);
+  doc["pump"] = pumpOn;
+  doc["low"] = waterLow;
+  doc["manual"] = manualMode;
+  if (dhtOk) {
+    doc["temp"] = temperatureC;
+    doc["hum"] = humidityPct;
+  } else {
+    doc["temp"] = nullptr;
+    doc["hum"] = nullptr;
+  }
+  doc["dhtOk"] = dhtOk;
+  doc["cycles"] = pumpCycles;
+  doc["totalMin"] = (uint32_t)(liveTotalPumpMillis() / 60000ULL);
+  doc["wifi"] = WiFi.status() == WL_CONNECTED;
+  doc["apMode"] = apMode;
+  doc["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+  doc["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  doc["timeSynced"] = timeIsValid();
+  doc["now"] = currentTimeText();
   JsonArray schedule = doc.createNestedArray("slots");
-  for (uint8_t i = 0; i < SLOT_COUNT; ++i) { JsonObject s = schedule.createNestedObject(); s["used"] = slots[i].used; s["enabled"] = slots[i].enabled; s["start"] = slotTime(slots[i].startHour, slots[i].startMinute); s["stop"] = slotTime(slots[i].stopHour, slots[i].stopMinute); }
-  JsonArray events = doc.createNestedArray("history"); const uint8_t first = historyCount < HISTORY_SIZE ? 0 : historyHead;
-  for (uint8_t i = 0; i < historyCount; ++i) { const HistoryEvent& event = history[(first + i) % HISTORY_SIZE]; JsonObject e = events.createNestedObject(); e["time"] = eventTime(event); e["text"] = event.text; }
-  String body; serializeJson(doc, body); return body;
+  for (uint8_t i = 0; i < SLOT_COUNT; ++i) {
+    JsonObject s = schedule.createNestedObject();
+    s["used"] = slots[i].used;
+    s["enabled"] = slots[i].enabled;
+    s["start"] = slotTime(slots[i].startHour, slots[i].startMinute);
+    s["stop"] = slotTime(slots[i].stopHour, slots[i].stopMinute);
+  }
+  JsonArray events = doc.createNestedArray("history");
+  const uint8_t first = historyCount < HISTORY_SIZE ? 0 : historyHead;
+  for (uint8_t i = 0; i < historyCount; ++i) {
+    const HistoryEvent& event = history[(first + i) % HISTORY_SIZE];
+    JsonObject e = events.createNestedObject();
+    e["time"] = eventTime(event);
+    e["text"] = event.text;
+  }
+  String body;
+  serializeJson(doc, body);
+  return body;
 }
 
 void cloudWorker(void*) {
@@ -2079,20 +2110,37 @@ void cloudWorker(void*) {
       String result;
       RemoteResult ack;
       while (cloudResultQueue && xQueueReceive(cloudResultQueue, &ack, 0) == pdTRUE) {
-        StaticJsonDocument<256> body; body["id"] = ack.id; body["stage"] = "executed"; body["ok"] = ack.ok; if (!ack.ok) body["error"] = ack.error;
-        String serialized; serializeJson(body, serialized); cloudOnline = cloudRequest("POST", "/api/device/ack", serialized, result);
+        StaticJsonDocument<256> body;
+        body["id"] = ack.id;
+        body["stage"] = "executed";
+        body["ok"] = ack.ok;
+        if (!ack.ok) body["error"] = ack.error;
+        String serialized;
+        serializeJson(body, serialized);
+        cloudOnline = cloudRequest("POST", "/api/device/ack", serialized, result);
       }
       const uint32_t now = millis();
-      if ((uint32_t)(now - lastTelemetry) >= 15000UL) { lastTelemetry = now; cloudOnline = cloudRequest("POST", "/api/device/telemetry", buildTelemetryJson(), result); }
+      if ((uint32_t)(now - lastTelemetry) >= 15000UL) {
+        lastTelemetry = now;
+        cloudOnline = cloudRequest("POST", "/api/device/telemetry", buildTelemetryJson(), result);
+      }
       if ((uint32_t)(now - lastCommandPoll) >= 4000UL) {
         lastCommandPoll = now;
         if (cloudRequest("GET", "/api/device/commands", "", result)) {
-          DynamicJsonDocument response(1400); if (deserializeJson(response, result) == DeserializationError::Ok && !response["command"].isNull()) {
-            JsonObjectConst command = response["command"].as<JsonObjectConst>(); RemoteCommand item{};
-            strlcpy(item.id, command["id"] | "", sizeof(item.id)); strlcpy(item.action, command["action"] | "", sizeof(item.action));
+          DynamicJsonDocument response(8192);
+          if (deserializeJson(response, result) == DeserializationError::Ok && !response["command"].isNull()) {
+            JsonObjectConst command = response["command"].as<JsonObjectConst>();
+            RemoteCommand item{};
+            strlcpy(item.id, command["id"] | "", sizeof(item.id));
+            strlcpy(item.action, command["action"] | "", sizeof(item.action));
             serializeJson(command["payload"], item.payload, sizeof(item.payload));
             if (item.id[0] && cloudCommandQueue && xQueueSend(cloudCommandQueue, &item, 0) == pdTRUE) {
-              StaticJsonDocument<192> received; received["id"] = item.id; received["stage"] = "received"; received["ok"] = true; String serialized; serializeJson(received, serialized);
+              StaticJsonDocument<192> received;
+              received["id"] = item.id;
+              received["stage"] = "received";
+              received["ok"] = true;
+              String serialized;
+              serializeJson(received, serialized);
               cloudOnline = cloudRequest("POST", "/api/device/ack", serialized, result);
             }
           }
@@ -2108,14 +2156,22 @@ void serviceCloudCommands() {
   if (!cloudCommandQueue) return;
   RemoteCommand command;
   if (xQueueReceive(cloudCommandQueue, &command, 0) != pdTRUE) return;
-  RemoteResult result{}; strlcpy(result.id, command.id, sizeof(result.id));
-  preferences.begin("hidro", true); String lastId = preferences.getString("lastCmd", ""); preferences.end();
-  if (lastId == command.id) { result.ok = true; }
-  else {
-    DynamicJsonDocument payload(1024); DeserializationError parseError = deserializeJson(payload, command.payload);
-    String error; result.ok = !parseError && processAction(command.action, payload.as<JsonVariantConst>(), error);
+  RemoteResult result{};
+  strlcpy(result.id, command.id, sizeof(result.id));
+  preferences.begin("hidro", true);
+  String lastId = preferences.getString("lastCmd", "");
+  preferences.end();
+  if (lastId == command.id) {
+    result.ok = true;
+  } else {
+    DynamicJsonDocument payload(4096);
+    DeserializationError parseError = deserializeJson(payload, command.payload);
+    String error;
+    result.ok = !parseError && processAction(command.action, payload.as<JsonVariantConst>(), error);
     if (!result.ok) strlcpy(result.error, parseError ? "Payload remoto invalido" : error.c_str(), sizeof(result.error));
-    preferences.begin("hidro", false); preferences.putString("lastCmd", command.id); preferences.end();
+    preferences.begin("hidro", false);
+    preferences.putString("lastCmd", command.id);
+    preferences.end();
   }
   if (cloudResultQueue) xQueueSend(cloudResultQueue, &result, 0);
   Serial.printf("Nuvem comando %s: %s\n", command.action, result.ok ? "executado" : "recusado");
@@ -2127,67 +2183,55 @@ void serviceCloudCommands() {
 
 void setupRoutes() {
 
-  const char* headerKeys[] =
-    {"Cookie"};
+  const char* headerKeys[] = { "Cookie" };
 
   server.collectHeaders(
     headerKeys,
-    1
-  );
+    1);
 
   server.on(
     "/login",
     HTTP_GET,
-    handleLoginPage
-  );
+    handleLoginPage);
 
   server.on(
     "/api/login",
     HTTP_POST,
-    handleLogin
-  );
+    handleLogin);
 
   server.on(
     "/api/logout",
     HTTP_POST,
-    handleLogout
-  );
+    handleLogout);
 
   server.on(
     "/",
     HTTP_GET,
     []() {
-
       if (
-        requireAuth(true)
-      ) {
+        requireAuth(true)) {
 
         server.send_P(
           200,
           "text/html; charset=utf-8",
-          INDEX_HTML
-        );
+          INDEX_HTML);
       }
-    }
-  );
+    });
 
   server.on(
     "/api/status",
     HTTP_GET,
-    handleStatus
-  );
+    handleStatus);
 
   server.on(
     "/api/control",
     HTTP_POST,
-    handleControl
-  );
+    handleControl);
 
   server.on(
     "/api/schedules",
     HTTP_POST,
-    handleSchedules
-  );
+    handleSchedules);
 
   server.on("/ping", HTTP_GET, []() {
     server.sendHeader("Cache-Control", "no-store");
@@ -2197,7 +2241,8 @@ void setupRoutes() {
   server.on("/teste", HTTP_GET, []() {
     String body = "<!doctype html><meta charset=utf-8><title>Teste ESP32</title><h1>Servidor HTTP ativo</h1><p>Wi-Fi: ";
     body += WiFi.status() == WL_CONNECTED ? "conectado" : (apMode ? "AP de emergencia" : "desconectado");
-    body += "</p><p>IP: "; body += WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    body += "</p><p>IP: ";
+    body += WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
     body += "</p><p>Servidor iniciou e recebeu esta requisicao.</p>";
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "text/html; charset=utf-8", body);
@@ -2205,25 +2250,20 @@ void setupRoutes() {
 
   server.onNotFound(
     []() {
-
       if (
-        requireAuth(true)
-      ) {
+        requireAuth(true)) {
 
         server.send(
           404,
           "text/plain",
-          "Nao encontrado"
-        );
+          "Nao encontrado");
       }
-    }
-  );
+    });
 
   server.begin();
 
   Serial.println(
-    "Servidor HTTP iniciado."
-  );
+    "Servidor HTTP iniciado.");
 }
 
 // ============================================================
@@ -2236,16 +2276,13 @@ void setup() {
 
   Serial.println();
   Serial.println(
-    "================================"
-  );
+    "================================");
 
   Serial.println(
-    " SISTEMA DE HIDROPONIA - ESP32"
-  );
+    " SISTEMA DE HIDROPONIA - ESP32");
 
   Serial.println(
-    "================================"
-  );
+    "================================");
 
   // ----------------------------------------------------------
   // GPIO
@@ -2253,8 +2290,7 @@ void setup() {
 
   pinMode(
     RELAY_PIN,
-    OUTPUT
-  );
+    OUTPUT);
 
   // Fail-safe:
   // bomba começa desligada.
@@ -2262,17 +2298,13 @@ void setup() {
 
   pinMode(
     LEVEL_PIN,
-    INPUT_PULLUP
-  );
+    INPUT_PULLUP);
 
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
   levelCandidateLow =
-    (
-      digitalRead(LEVEL_PIN) ==
-      LOW_LEVEL_READING
-    );
+    (digitalRead(LEVEL_PIN) == LOW_LEVEL_READING);
   // Inicializa bloqueado se a boia já indicar nível baixo.
   waterLow = levelCandidateLow;
 
@@ -2298,25 +2330,20 @@ void setup() {
   WiFi.persistent(false);
 
   WiFi.mode(
-    WIFI_STA
-  );
+    WIFI_STA);
 
   WiFi.setAutoReconnect(
-    true
-  );
+    true);
 
   Serial.print(
-    "Conectando ao Wi-Fi: "
-  );
+    "Conectando ao Wi-Fi: ");
 
   Serial.println(
-    WIFI_SSID
-  );
+    WIFI_SSID);
 
   WiFi.begin(
     WIFI_SSID,
-    WIFI_PASSWORD
-  );
+    WIFI_PASSWORD);
 
   wifiStartedAt =
     millis();
@@ -2340,17 +2367,15 @@ void setup() {
   cloudCommandQueue = xQueueCreate(2, sizeof(RemoteCommand));
   cloudResultQueue = xQueueCreate(4, sizeof(RemoteResult));
   if (cloudCommandQueue && cloudResultQueue) {
-    xTaskCreatePinnedToCore(cloudWorker, "hydro-cloud", 10000, nullptr, 1, &cloudTaskHandle, 0);
+    xTaskCreatePinnedToCore(cloudWorker, "hydro-cloud", 16384, nullptr, 1, &cloudTaskHandle, 0);
   }
 
   Serial.println();
   Serial.println(
-    "Sistema iniciado."
-  );
+    "Sistema iniciado.");
 
   Serial.println(
-    "Aguardando conexao Wi-Fi..."
-  );
+    "Aguardando conexao Wi-Fi...");
 }
 
 // ============================================================
@@ -2376,5 +2401,4 @@ void loop() {
 
   // Servidor
   server.handleClient();
-
 }
