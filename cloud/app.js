@@ -13,7 +13,7 @@
   function setText(id, value) { const element = $(id); if (element) element.textContent = value ?? '—'; }
   function setClass(id, className, enabled) { const element = $(id); if (element) element.classList.toggle(className, enabled); }
   const state = { config: null, authenticated: false, refreshTimer: 0,
-    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleSchedule: null, bleConnected: false, bleRefreshTimer: 0,
+    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleSchedule: null, bleReading: false, bleConnected: false, bleRefreshTimer: 0,
     lastPayload: null, schedulesDirty: false, pendingScheduleCommandId: null, busy: false, toastTimer: 0 };
 
   function toast(message, error = false) {
@@ -46,6 +46,14 @@
     return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
   }
   function safeText(id, value) { setText(id, value); }
+  // Modo do sistema: 'off' (tudo parado), 'on' (ligado, bomba manual) ou 'auto' (fila de horários).
+  function deviceMode(device) {
+    if (!device) return null;
+    if (device.mode === 'off' || device.mode === 'on' || device.mode === 'auto') return device.mode;
+    if (device.manual === true) return 'on';
+    if (device.manual === false) return 'auto';
+    return null;
+  }
   function scheduleIsUsed(slot) {
     if (typeof slot.used === 'boolean') return slot.used;
     return Boolean(slot.enabled) || (slot.start !== '08:00' || slot.stop !== '08:15');
@@ -135,6 +143,7 @@
     if (!box) { box = document.createElement('div'); box.id = 'queueSummary'; box.className = 'queue-summary'; rowsRoot.before(box); }
     const device = state.lastPayload ? (state.lastPayload.device || state.lastPayload) : {};
     const now = deviceSeconds();
+    const mode = deviceMode(device);
     const items = [...rowsRoot.querySelectorAll('.schedule-row')].map((row, index) => {
       const startText = row.querySelector('input[name^="start"]').value, stopText = row.querySelector('input[name^="stop"]').value;
       const start = hhmmToSec(startText), stop = hhmmToSec(stopText);
@@ -143,11 +152,11 @@
       const item = { row, index, name: `Período ${String(index + 1).padStart(2, '0')}`, startText, stopText, start, stop, enabled, valid, status: 'off', label: 'Desativado', remaining: 0, delta: Infinity };
       if (!enabled || !valid) return item;
       if (now === null) { item.status = 'wait'; item.label = 'Aguardando ESP32'; return item; }
+      if (mode !== 'auto') { item.status = 'paused'; item.label = 'Fila parada'; return item; }
       const inWindow = start < stop ? (now >= start && now < stop) : (now >= start || now < stop);
       if (inWindow) {
         item.remaining = start < stop ? stop - now : (now >= start ? 86400 - now + stop : stop - now);
-        if (device.low === true) { item.status = 'blocked'; item.label = 'Bloqueado · nível baixo'; }
-        else if (device.manual === true) { item.status = 'manual'; item.label = 'Manual ativo · agenda pausada'; }
+        if (device.levelSensor === true && device.low === true) { item.status = 'blocked'; item.label = 'Bloqueado · nível baixo'; }
         else if (device.pump === true) { item.status = 'running'; item.label = `Rodando agora · faltam ${fmtDuration(item.remaining)}`; }
         else { item.status = 'running'; item.label = 'Na janela agora'; }
       } else {
@@ -166,35 +175,51 @@
       item.row.classList.toggle('is-running', item.status === 'running');
       item.row.classList.toggle('is-next', item.status === 'next');
     });
-    // Resumo no topo da lista
+    // Mensagem "o que está acontecendo agora" (painel da bomba) e resumo da fila (seção Horários)
     const active = items.filter(i => i.enabled && i.valid);
-    box.replaceChildren();
-    if (!items.length) { box.className = 'queue-summary'; return; }
-    const line = text => { const div = document.createElement('div'); div.textContent = text; box.append(div); return div; };
-    const running = items.find(i => i.status === 'running' || i.status === 'blocked' || i.status === 'manual');
+    const running = items.find(i => i.status === 'running' || i.status === 'blocked');
     const next = upcoming[0];
-    box.className = 'queue-summary';
-    if (now === null) {
-      box.classList.add('warn');
-      line(active.length ? 'Sem comunicação recente com a ESP32: não dá para confirmar qual horário está rodando agora.' : 'Nenhum horário ativo na fila.');
-    } else if (!active.length) {
-      line('Nenhum horário ativo na fila.');
-    } else {
-      if (running) {
-        const range = `${running.startText} → ${running.stopText}`;
-        if (running.status === 'blocked') { box.classList.add('warn'); line(`${running.name} (${range}) está na janela, mas a bomba está bloqueada por nível baixo.`); }
-        else if (running.status === 'manual') { box.classList.add('warn'); line(`Modo manual ativo: a fila está pausada. ${running.name} (${range}) estaria na janela agora.`); }
-        else { box.classList.add('running'); line(`▶ Rodando agora: ${running.name} · ${range} · faltam ${fmtDuration(running.remaining)}`); }
+    const first = active[0], last = active[active.length - 1];
+    const loopLine = active.length > 1 ? `Ao terminar o último horário (${last.name}, ${last.stopText}), a fila recomeça no ${first.name} (${first.startText}).` : active.length === 1 ? 'Esse horário se repete todos os dias.' : '';
+    const hasData = device.pump !== undefined;
+    const modeLabel = mode === 'off' ? 'desligado' : mode === 'on' ? 'ligado (manual)' : mode === 'auto' ? 'automático' : 'desconhecido';
+    let title = '', text = '', tone = '';
+    if (!hasData) { title = 'Aguardando a ESP32'; text = 'Ainda não chegou nenhum estado do dispositivo. Quando ela se conectar, o que está acontecendo aparece aqui.'; tone = 'warn'; }
+    else if (now === null) { title = 'Sem comunicação recente'; text = `Último modo conhecido: ${modeLabel}. Não dá para confirmar o que está rodando agora.`; tone = 'warn'; }
+    else if (mode === 'off') { title = 'Sistema desligado'; text = 'Tudo parado: bomba desligada e fila pausada. Toque em Ligar para liberar o modo Automático.'; }
+    else if (mode === 'on') {
+      title = 'Sistema ligado · modo manual';
+      text = device.pump ? 'Bomba funcionando agora. Por segurança (ainda sem chave boia) ela para sozinha após 30 minutos. Toque em Automático para iniciar a fila de horários.' : 'Bomba parada por segurança (passou o limite de 30 minutos). O sistema continua ligado: toque em Ligar para religar a bomba ou em Automático para iniciar a fila.';
+    } else if (mode === 'auto') {
+      if (!active.length) { title = 'Automático ativado · sem horários'; text = 'Nenhum horário ativo na fila. Marque pelo menos um como Ativo e salve para a fila começar.'; tone = 'warn'; }
+      else if (running && running.status === 'blocked') { title = 'Automático · bomba bloqueada'; text = `${running.name} está na janela, mas a bomba está bloqueada por nível baixo.`; tone = 'warn'; }
+      else if (running) {
+        const chained = next && next.start === running.stop;
+        title = 'Automático · fila rodando';
+        text = `▶ ${running.name} (${running.startText} → ${running.stopText}) · faltam ${fmtDuration(running.remaining)}. ` + (chained ? `Em seguida, sem pausa: ${next.name} (${next.startText} → ${next.stopText}). ` : next ? `Próximo: ${next.name} às ${next.startText} (em ${fmtDuration(next.delta)}). ` : '') + loopLine;
+        tone = 'running';
       } else {
-        line('Nenhum horário rodando agora.');
+        title = 'Automático · aguardando o próximo horário';
+        text = (next ? `Bomba desligada até o ${next.name}, às ${next.startText} (em ${fmtDuration(next.delta)}). ` : '') + loopLine;
       }
-      if (next) {
-        const chained = running && running.status === 'running' && next.start === running.stop;
-        line(chained
-          ? `Em seguida, sem pausa: ${next.name} (${next.startText} → ${next.stopText}).`
-          : `Próximo na fila: ${next.name} às ${next.startText} (em ${fmtDuration(next.delta)}).`);
-      }
-      line(`${active.length} ${active.length === 1 ? 'horário ativo' : 'horários ativos'} na fila · executados em ordem de horário, todos os dias.`);
+    } else { title = 'Modo não confirmado'; text = 'Aguardando a ESP32 informar o modo.'; tone = 'warn'; }
+    let nowBox = $('nowMessage');
+    if (!nowBox) { nowBox = document.createElement('div'); nowBox.id = 'nowMessage'; nowBox.className = 'now-message'; const anchor = document.querySelector('.pump-controls'); if (anchor) anchor.after(nowBox); }
+    if (nowBox) { nowBox.replaceChildren(); const strong = document.createElement('strong'); strong.textContent = title; const span = document.createElement('span'); span.textContent = text.trim(); nowBox.append(strong, span); nowBox.className = `now-message ${tone}`.trim(); }
+    // Resumo da fila
+    box.replaceChildren();
+    box.className = 'queue-summary';
+    if (!items.length) return;
+    const line = value => { const div = document.createElement('div'); div.textContent = value; box.append(div); };
+    if (!hasData || now === null) { box.classList.add('warn'); line(active.length ? 'Sem comunicação recente com a ESP32: não dá para confirmar qual horário está rodando agora.' : 'Nenhum horário ativo na fila.'); }
+    else if (!active.length) { line('Nenhum horário ativo na fila.'); }
+    else if (mode !== 'auto') { box.classList.add('warn'); line(mode === 'off' ? 'Sistema desligado: a fila está parada.' : 'Sistema ligado em modo manual: a fila está parada. Toque em Automático para iniciar.'); line(`${active.length} ${active.length === 1 ? 'horário ativo' : 'horários ativos'} na fila.`); }
+    else {
+      if (running && running.status === 'running') { box.classList.add('running'); line(`▶ Rodando agora: ${running.name} · ${running.startText} → ${running.stopText} · faltam ${fmtDuration(running.remaining)}`); }
+      else if (running) { box.classList.add('warn'); line(`${running.name} está na janela, mas a bomba está bloqueada por nível baixo.`); }
+      else line('Nenhum horário rodando agora.');
+      if (next) { const chained = running && running.status === 'running' && next.start === running.stop; line(chained ? `Em seguida, sem pausa: ${next.name} (${next.startText} → ${next.stopText}).` : `Próximo na fila: ${next.name} às ${next.startText} (em ${fmtDuration(next.delta)}).`); }
+      line(`${active.length} ${active.length === 1 ? 'horário ativo' : 'horários ativos'} na fila · ${loopLine || 'repete todos os dias.'}`);
     }
   }
   // Ordenação opcional (só quando a pessoa clica): o dia começa às 08:00, então 08:15 vem antes de 00:15.
@@ -210,6 +235,31 @@
     current.push({ used: true, enabled: false, start: '08:00', stop: '08:15' });
     renderSchedules(current); markScheduleDirty();
   }
+  function actionText(command) {
+    const names = { on: 'Ligou o sistema · bomba em modo manual', off: 'Desligou o sistema · tudo parado', auto: 'Ativou o modo automático · fila em execução', schedules: 'Salvou a agenda de horários' };
+    return names[command.action] || `Comando ${command.action}`;
+  }
+  function actionResult(command) {
+    switch (command.status) {
+      case 'executed': return ['ok', '✓ confirmado pela ESP32'];
+      case 'rejected': return ['bad', `✗ recusado${command.result?.error ? ': ' + command.result.error : ''}`];
+      case 'pending': case 'received': return ['wait', '⏳ aguardando a ESP32'];
+      case 'expired': return ['bad', 'expirou sem ser executado'];
+      case 'superseded': return ['', 'substituído por um comando mais novo'];
+      default: return ['', command.status || ''];
+    }
+  }
+  function renderActions(commands = []) {
+    const root = $('actionList'); if (!root) return;
+    root.replaceChildren();
+    if (!commands.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nenhuma ação registrada ainda.'; root.appendChild(li); return; }
+    commands.slice(0, 30).forEach(command => {
+      const li = document.createElement('li'); const time = document.createElement('time'); time.textContent = localDate(command.created_at);
+      const text = document.createElement('span'); text.textContent = actionText(command);
+      const [kind, label] = actionResult(command); const tag = document.createElement('em'); tag.className = `act-tag ${kind}`; tag.textContent = label; text.append(tag);
+      li.append(time, text); root.appendChild(li);
+    });
+  }
   function renderHistory(events = []) {
     const root = $('eventList'); root.replaceChildren();
     if (!events.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Ainda não há eventos recebidos do dispositivo.'; root.appendChild(li); return; }
@@ -223,11 +273,18 @@
     const remotePill = $('remotePill'); if (remotePill) { remotePill.classList.toggle('online', fresh); remotePill.classList.toggle('offline', !fresh); const label = remotePill.querySelector('span'); if (label) label.textContent = fresh ? 'ESP32 conectado' : 'Dispositivo offline'; }
     setClass('staleBanner', 'hidden', fresh);
     safeText('pumpState', device.pump ? 'Bomba ligada' : device.pump === false ? 'Bomba desligada' : 'Aguardando estado');
-    safeText('modeState', device.manual ? 'Modo manual' : device.manual === false ? 'Automático · agenda local' : 'Modo não confirmado');
-    safeText('controlMode', device.manual ? 'Modo manual' : 'Modo automático');
-    $('waterState').textContent = device.low === true ? 'Nível baixo · partida bloqueada' : device.low === false ? 'Nível normal' : 'Nível indisponível';
-    $('waterState').className = `state-chip ${device.low === true ? 'alert' : device.low === false ? 'safe' : 'neutral'}`;
-    $('lowWaterWarning').classList.toggle('hidden', device.low !== true);
+    const mode = deviceMode(device);
+    safeText('modeState', mode === 'off' ? 'Sistema desligado · tudo parado' : mode === 'on' ? 'Sistema ligado · modo manual' : mode === 'auto' ? 'Modo automático · fila de horários' : 'Modo não confirmado');
+    safeText('controlMode', mode === 'off' ? 'Desligado' : mode === 'on' ? 'Ligado (manual)' : mode === 'auto' ? 'Automático' : 'Aguardando estado');
+    const autoButton = document.querySelector('[data-command="auto"]');
+    if (autoButton && !state.busy) { const locked = mode !== 'on' && mode !== 'auto'; autoButton.disabled = locked; autoButton.title = locked ? 'Ligue o sistema primeiro para liberar o modo automático' : ''; }
+    document.querySelectorAll('[data-command]').forEach(b => b.classList.toggle('is-active', b.dataset.command === mode || (b.dataset.command === 'on' && mode === 'on')));
+    const levelReady = device.levelSensor === true;
+    $('waterState').textContent = !levelReady ? 'Em breve' : device.low === true ? 'Nível baixo · partida bloqueada' : device.low === false ? 'Nível normal' : 'Nível indisponível';
+    $('waterState').className = `state-chip ${!levelReady ? 'neutral' : device.low === true ? 'alert' : device.low === false ? 'safe' : 'neutral'}`;
+    $('lowWaterWarning').classList.toggle('hidden', !(levelReady && device.low === true));
+    safeText('waterNote', levelReady ? 'Reservatório · chave boia' : 'Chave boia ainda não instalada');
+    safeText('sensorWaterNote', levelReady ? 'Chave boia digital · GPIO 5' : 'A chave boia ainda não foi instalada');
     safeText('temperature', Number.isFinite(device.temp) ? `${device.temp.toFixed(1)} °C` : 'Indisponível');
     safeText('humidity', Number.isFinite(device.hum) ? `${device.hum.toFixed(1)} %` : 'Indisponível');
     safeText('temperatureUpdated', device.dhtOk ? `Atualizado ${localDate(receivedAt)}` : 'Leitura do DHT22 indisponível');
@@ -236,7 +293,7 @@
     safeText('sensorHumidity', Number.isFinite(device.hum) ? `${device.hum.toFixed(1)} %` : 'Leitura indisponível');
     safeText('sensorTemperatureTime', device.dhtOk ? `Recebida ${localDate(receivedAt)}` : 'Última leitura indisponível');
     safeText('sensorHumidityTime', device.dhtOk ? `Recebida ${localDate(receivedAt)}` : 'Última leitura indisponível');
-    safeText('sensorWater', device.low === true ? 'Baixo · bomba protegida' : device.low === false ? 'Normal' : 'Leitura indisponível');
+    safeText('sensorWater', !levelReady ? 'Em breve' : device.low === true ? 'Baixo · bomba protegida' : device.low === false ? 'Normal' : 'Leitura indisponível');
     safeText('cycles', device.cycles); safeText('totalTime', Number.isFinite(device.totalMin) ? `${device.totalMin} min` : '—');
     safeText('deviceIp', device.ip || '—');
     safeText('currentTime', device.now || '—');
@@ -251,7 +308,7 @@
     safeText('diagIp', device.ip ? `IP ${device.ip}${device.rssi != null ? ` · RSSI ${device.rssi} dBm` : ''}` : 'Endereço IP indisponível');
     safeText('cloudState', fresh ? 'Sincronizado' : 'Sem comunicação'); safeText('diagCloud', fresh ? 'Online' : 'Offline');
     safeText('diagTime', device.timeSynced ? 'Sincronizado' : 'Aguardando sincronização');
-    safeText('diagSensors', device.dhtOk ? (device.low == null ? 'DHT22 ativo · boia indisponível' : 'DHT22 e boia ativos') : 'Falha ou leitura pendente');
+    safeText('diagSensors', device.dhtOk ? (levelReady ? 'DHT22 e boia ativos' : 'DHT22 ativo · chave boia em breve') : 'Falha ou leitura pendente');
     safeText('sensorHealth', device.dhtOk ? 'DHT22 respondendo' : 'DHT22 sem leitura válida'); safeText('diagUpdated', localDate(receivedAt));
     $('wifiState').classList.toggle('connection-status', true);
     if (!state.schedulesDirty) {
@@ -271,6 +328,7 @@
       }
     }
     renderHistory(payload.events || device.history || []);
+    if (source !== 'ble' && Array.isArray(payload.commands)) renderActions(payload.commands);
     if (payload.pendingCommand) safeText('commandState', `Comando ${payload.pendingCommand.action}: aguardando confirmação do ESP32`);
     else if (source === 'ble') safeText('commandState', 'Conectado diretamente por Bluetooth LE');
     updateQueue();
@@ -293,17 +351,19 @@
   async function sendCommand(action, payload = null) {
     if (state.busy) return; state.busy = true; const button = document.querySelector(`[data-command="${action}"]`); if (button) setBusy(button, true, 'Enviando…');
     try {
-      if (action === 'on' && state.lastPayload?.device?.low === true) throw new Error('Nível de água baixo: o ESP32 não permitirá ligar a bomba.');
+      if (action === 'on' && state.lastPayload?.device?.levelSensor === true && state.lastPayload?.device?.low === true) throw new Error('Nível de água baixo: o ESP32 não permitirá ligar a bomba.');
       if (state.bleConnected) {
         const blePayload = action === 'schedules' ? compactSchedule(payload) : payload;
         const command = { id: crypto.randomUUID(), action, ...(blePayload !== null && blePayload !== undefined ? { payload: blePayload } : {}) };
-        await state.bleCommand.writeValue(new TextEncoder().encode(JSON.stringify(command)));
-        let result = null;
-        for (let attempt = 0; attempt < 20; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 150));
-          const ack = new TextDecoder().decode((await state.bleAck.readValue()).buffer);
-          try { const candidate = JSON.parse(ack); if (candidate.id === command.id) { result = candidate; break; } } catch {}
-        }
+        const result = await bleExclusive(async () => {
+          await state.bleCommand.writeValue(new TextEncoder().encode(JSON.stringify(command)));
+          for (let attempt = 0; attempt < 20; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 150));
+            const ack = new TextDecoder().decode((await state.bleAck.readValue()).buffer);
+            try { const candidate = JSON.parse(ack); if (candidate.id === command.id) return candidate; } catch {}
+          }
+          return null;
+        });
         if (!result || !result.ok) throw new Error(result?.error || 'O ESP32 não confirmou o comando.');
         toast('Comando confirmado pelo ESP32'); await readBleStatus();
       } else {
@@ -356,9 +416,17 @@
       safeText('bleState', 'Conectado'); safeText('diagBle', device.name || 'Conectado'); $('bleConnect').textContent = 'Desconectar Bluetooth'; clearInterval(state.refreshTimer); await readBleStatus(); clearInterval(state.bleRefreshTimer); state.bleRefreshTimer = setInterval(readBleStatus, 3000); toast('Conexão BLE estabelecida.');
     } catch (error) { if (error.name !== 'NotFoundError') toast(error.message || 'Não foi possível conectar por BLE.', true); }
   }
+  // Web Bluetooth só aceita UMA operação GATT por vez: tudo (leituras e escritas) passa por esta fila.
+  let bleQueue = Promise.resolve();
+  function bleExclusive(task) { const run = bleQueue.then(task, task); bleQueue = run.catch(() => {}); return run; }
   async function readBleStatus() {
+    if (!state.bleConnected || state.bleReading) return;
+    state.bleReading = true;
+    try { await bleExclusive(readBleStatusNow); } finally { state.bleReading = false; }
+  }
+  async function readBleStatusNow() {
     if (!state.bleConnected) return; try { const value = await state.bleStatus.readValue(); const data = JSON.parse(new TextDecoder().decode(value.buffer)); if (Array.isArray(data.slots)) data.slots = data.slots.map(slot => slot.length >= 4 ? ({ used: Boolean(slot[0]), enabled: Boolean(slot[1]), start: slot[2], stop: slot[3] }) : ({ used: Boolean(slot[0]), enabled: Boolean(slot[0]), start: slot[1], stop: slot[2] })); if (state.bleSchedule) { try { data.slots = parseCompactSchedule(new TextDecoder().decode((await state.bleSchedule.readValue()).buffer)); } catch {} } renderStatus({ device: data, lastSeen: new Date().toISOString(), events: data.history || [] }, 'ble'); $('remotePill').classList.add('online'); $('remotePill').querySelector('span').textContent = 'Bluetooth conectado'; }
-    catch (error) { toast(`Falha ao ler o estado BLE: ${error.message}`, true); }
+    catch (error) { if (!/already in progress/i.test(error.message || '')) toast(`Falha ao ler o estado BLE: ${error.message}`, true); }
   }
   async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleDevice.gatt.disconnect(); return; } await connectBle(); }
 

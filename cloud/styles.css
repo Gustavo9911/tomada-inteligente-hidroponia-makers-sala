@@ -48,3 +48,18 @@
 .slot-badge.manual,.slot-badge.wait{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
 .schedule-row.is-running{background:linear-gradient(90deg,#0d392f80,transparent);box-shadow:inset 2px 0 0 #22d19a}
 .schedule-row.is-next{box-shadow:inset 2px 0 0 #665cff}
+
+/* Mensagem "o que está acontecendo agora" e histórico em duas áreas */
+.now-message{position:relative;z-index:1;margin:2px 0 12px;padding:11px 13px;border:1px solid #2a3b66;border-radius:10px;background:#0b1430;color:#c9d4ef;font-size:.7rem;line-height:1.6}
+.now-message strong{display:block;margin-bottom:2px;color:#f2f5ff;font-size:.78rem}
+.now-message.running{border-color:#146951;background:linear-gradient(90deg,#0d392f,#0b1830);color:#d9fff3}
+.now-message.warn{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
+.pump-controls .button.is-active{box-shadow:0 0 0 2px rgba(255,255,255,.55)}
+.slot-badge.paused{opacity:.55}
+.history-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.panel-title{margin:0 0 3px;font-size:.95rem}
+.panel-sub{margin:0 0 10px;font-size:.7rem;color:#8a98ba}
+.act-tag{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:99px;border:1px solid #30416a;background:#111d3b;color:#9daaca;font-style:normal;font-size:.6rem}
+.act-tag.ok{border-color:#146951;background:#0d392f;color:#56ddb2}
+.act-tag.bad{border-color:#833d58;background:#401d35;color:#ff91a9}
+.act-tag.wait{border-color:#7a5a24;background:#2b2113;color:#f1c57c}

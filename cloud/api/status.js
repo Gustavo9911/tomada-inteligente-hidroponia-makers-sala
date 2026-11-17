@@ -5,7 +5,7 @@ module.exports = async (req, res) => {
     const user = await userAuth(req, res); if (!user) return;
     const id = env('DEVICE_ID') || 'hidroponia-adib-01';
     const rows = await db(`device_state?device_id=eq.${encodeURIComponent(id)}&select=device_id,latest,last_seen&limit=1`);
-    const commands = await db(`commands?device_id=eq.${encodeURIComponent(id)}&created_by=eq.${encodeURIComponent(user.username)}&select=id,action,status,result,created_at,expires_at&order=created_at.desc&limit=10`);
+    const commands = await db(`commands?device_id=eq.${encodeURIComponent(id)}&created_by=eq.${encodeURIComponent(user.username)}&select=id,action,status,result,created_at,expires_at&order=created_at.desc&limit=30`);
     const events = rows[0]?.latest?.history || [];
     // Agenda ainda aguardando a ESP32 (para o painel mostrá-la mesmo depois de recarregar).
     const pendingRows = await db(`commands?device_id=eq.${encodeURIComponent(id)}&action=eq.schedules&status=in.(pending,received)&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=id,payload,created_at&order=created_at.desc&limit=1`);
