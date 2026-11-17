@@ -7,6 +7,9 @@ module.exports = async (req, res) => {
     const rows = await db(`device_state?device_id=eq.${encodeURIComponent(id)}&select=device_id,latest,last_seen&limit=1`);
     const commands = await db(`commands?device_id=eq.${encodeURIComponent(id)}&created_by=eq.${encodeURIComponent(user.username)}&select=id,action,status,result,created_at,expires_at&order=created_at.desc&limit=10`);
     const events = rows[0]?.latest?.history || [];
-    json(res, 200, { device: rows[0]?.latest || null, lastSeen: rows[0]?.last_seen || null, events, commands, pendingCommand: commands.find(c => ['pending', 'received'].includes(c.status)) || null });
+    // Agenda ainda aguardando a ESP32 (para o painel mostrá-la mesmo depois de recarregar).
+    const pendingRows = await db(`commands?device_id=eq.${encodeURIComponent(id)}&action=eq.schedules&status=in.(pending,received)&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=id,payload,created_at&order=created_at.desc&limit=1`);
+    const pendingSchedule = Array.isArray(pendingRows?.[0]?.payload) ? { id: pendingRows[0].id, payload: pendingRows[0].payload } : null;
+    json(res, 200, { device: rows[0]?.latest || null, lastSeen: rows[0]?.last_seen || null, events, commands, pendingSchedule, pendingCommand: commands.find(c => ['pending', 'received'].includes(c.status)) || null });
   } catch (error) { fail(res, 503, error.message || 'Falha ao consultar o estado remoto.'); }
 };

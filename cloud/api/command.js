@@ -16,10 +16,12 @@ module.exports = async (req, res) => {
     const previous = await db(`commands?idempotency_key=eq.${encodeURIComponent(key)}&select=id,status&limit=1`);
     if (previous.length) return json(res, 200, { ...previous[0], message: 'Solicitação já registrada anteriormente.' });
     const id = randomUUID(); const expiresAt = new Date(Date.now() + (action === 'schedules' ? 7 * 24 * 60 * 60 * 1000 : 90000)).toISOString();
-    // A solicitação mais recente substitui qualquer comando ainda pendente;
+    // A solicitação mais recente substitui comandos pendentes do mesmo tipo (manual x manual,
+    // agenda x agenda): ligar/desligar não apaga mais uma agenda que ainda espera a ESP32;
     // comandos expirados nunca ficam disponíveis após reconexões tardias.
     const device = env('DEVICE_ID') || 'hidroponia-adib-01';
-    await db(`commands?device_id=eq.${encodeURIComponent(device)}&status=in.(pending,received)`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'superseded', result: { reason: 'Substituído por solicitação mais recente.' } }) });
+    const sameKind = action === 'schedules' ? 'eq.schedules' : 'in.(on,off,auto)';
+    await db(`commands?device_id=eq.${encodeURIComponent(device)}&action=${sameKind}&status=in.(pending,received)`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ status: 'superseded', result: { reason: 'Substituído por solicitação mais recente.' } }) });
     const rows = await db('commands', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify([{ id, device_id: device, action, payload: payload || {}, status: 'pending', idempotency_key: key, created_by: user.username, expires_at: expiresAt }]) });
     json(res, 202, { id: rows?.[0]?.id || id, status: 'pending', message: 'Aguardando o ESP32 buscar e confirmar a execução.' });
   } catch (error) { fail(res, 503, error.message || 'Não foi possível registrar o comando.'); }

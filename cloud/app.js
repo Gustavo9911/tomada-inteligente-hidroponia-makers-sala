@@ -75,6 +75,16 @@
     if (!configured.length) $('scheduleStatus').textContent = 'Adicione um horário para começar';
     updateQueue();
   }
+  // Só redesenha a lista quando os dados mudaram: assim a atualização automática (a cada 5 s)
+  // não tira o foco do campo que a pessoa está editando.
+  function scheduleSignature(slots) {
+    return JSON.stringify((slots || []).filter(scheduleIsUsed).slice(0, 34).map(s => [Boolean(s.enabled), s.start || '08:00', s.stop || '08:15']));
+  }
+  function syncSchedules(slots) {
+    const root = $('scheduleRows');
+    if (root && root.querySelector('.schedule-row') && scheduleSignature(readScheduleRows()) === scheduleSignature(slots)) return;
+    renderSchedules(slots);
+  }
   function readScheduleRows() {
     return [...$('scheduleRows').querySelectorAll('.schedule-row')].map(row => ({
       used: true,
@@ -187,6 +197,13 @@
       line(`${active.length} ${active.length === 1 ? 'horário ativo' : 'horários ativos'} na fila · executados em ordem de horário, todos os dias.`);
     }
   }
+  // Ordenação opcional (só quando a pessoa clica): o dia começa às 08:00, então 08:15 vem antes de 00:15.
+  function sortSchedulesFrom8() {
+    const current = readScheduleRows();
+    const key = s => (hhmmToSec(s.start) - 8 * 3600 + 86400) % 86400;
+    current.sort((x, y) => key(x) - key(y));
+    renderSchedules(current); markScheduleDirty();
+  }
   function addSchedule() {
     const current = readScheduleRows();
     if (current.length >= 34) return;
@@ -237,7 +254,11 @@
     safeText('diagSensors', device.dhtOk ? (device.low == null ? 'DHT22 ativo · boia indisponível' : 'DHT22 e boia ativos') : 'Falha ou leitura pendente');
     safeText('sensorHealth', device.dhtOk ? 'DHT22 respondendo' : 'DHT22 sem leitura válida'); safeText('diagUpdated', localDate(receivedAt));
     $('wifiState').classList.toggle('connection-status', true);
-    if (!state.schedulesDirty && device.slots) renderSchedules(device.slots);
+    if (!state.schedulesDirty) {
+      const pending = Array.isArray(payload.pendingSchedule?.payload) ? payload.pendingSchedule : null;
+      if (pending) { syncSchedules(pending.payload); $('scheduleStatus').textContent = 'Agenda pendente na nuvem · aguardando a ESP32'; }
+      else if (device.slots) syncSchedules(device.slots);
+    }
     if (state.pendingScheduleCommandId) {
       const saved = (payload.commands || []).find(command => command.id === state.pendingScheduleCommandId);
       if (saved?.status === 'executed') {
@@ -311,13 +332,10 @@
     return false;
   }
   async function saveSchedule(event) {
-    event.preventDefault(); if (state.busy) return; const button = event.submitter; const slots = [];
+    event.preventDefault(); if (state.busy) return; const button = event.submitter || $('scheduleForm').querySelector('button[type="submit"]'); const slots = [];
     const configured = readScheduleRows();
     if (configured.length > 34) { toast('O limite é de 34 horários.', true); return; }
     if (configured.some(s => !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) || s.start === s.stop)) { toast('Informe horários válidos e diferentes para ligar e desligar.', true); return; }
-    // A fila roda em ordem de horário: ordena antes de salvar.
-    configured.sort((x, y) => x.start.localeCompare(y.start) || x.stop.localeCompare(y.stop));
-    renderSchedules(configured);
     for (let i = 0; i < 34; i++) slots.push(configured[i] || { used: false, enabled: false, start: '00:00', stop: '00:00' });
     setBusy(button, true, 'Salvando…');
     try {
@@ -345,7 +363,7 @@
   async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleDevice.gatt.disconnect(); return; } await connectBle(); }
 
   document.addEventListener('DOMContentLoaded', async () => {
-    $('loginForm').addEventListener('submit', signIn); $('logoutButton').addEventListener('click', signOut); $('scheduleForm').addEventListener('submit', saveSchedule); $('addSchedule').addEventListener('click', addSchedule); renderSchedules([]); setInterval(updateQueue, 1000);
+    $('loginForm').addEventListener('submit', signIn); $('logoutButton').addEventListener('click', signOut); $('scheduleForm').addEventListener('submit', saveSchedule); $('addSchedule').addEventListener('click', addSchedule); { const sortButton = document.createElement('button'); sortButton.type = 'button'; sortButton.id = 'sortSchedule'; sortButton.className = 'button secondary'; sortButton.textContent = 'Ordenar a partir das 08:00'; sortButton.addEventListener('click', sortSchedulesFrom8); $('addSchedule').before(sortButton); } renderSchedules([]); setInterval(updateQueue, 1000);
     $('togglePassword').addEventListener('click', () => { const input = $('password'); const visible = input.type === 'password'; input.type = visible ? 'text' : 'password'; $('togglePassword').textContent = visible ? 'Ocultar' : 'Ver'; });
     document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => sendCommand(button.dataset.command)));
     $('bleConnect').addEventListener('click', toggleBle); $('bleConnectCard').addEventListener('click', connectBle);
