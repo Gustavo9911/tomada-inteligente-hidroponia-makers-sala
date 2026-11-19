@@ -63,4 +63,18 @@ async function userAuth(req, res) {
   if (!user) { fail(res, 401, 'Sessão inválida ou expirada. Entre novamente.'); return null; }
   return user;
 }
-module.exports = { env, json, fail, method, db, deviceId, deviceAuth, userAuth, constantEqual };
+// Requisições vindas de um navegador em outro site (CSRF) trazem Origin diferente do nosso host.
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // chamadas fora do navegador não enviam Origin
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+}
+function guardOrigin(req, res) {
+  if (sameOrigin(req)) return true;
+  fail(res, 403, 'Origem da requisição não permitida.');
+  return false;
+}
+function clientIp(req) {
+  return String(req.headers['x-vercel-forwarded-for'] || req.headers['x-real-ip'] || (req.headers['x-forwarded-for'] || '').split(',')[0] || 'desconhecido').trim().slice(0, 64);
+}
+module.exports = { env, json, fail, method, db, deviceId, deviceAuth, userAuth, constantEqual, sameOrigin, guardOrigin, clientIp };
