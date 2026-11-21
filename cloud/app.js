@@ -6,6 +6,8 @@
   const BLE_COMMAND = '7b4a0003-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_ACK     = '7b4a0004-7f3a-4b69-9f33-3a4f8c2c1000';
   const BLE_SCHEDULE = '7b4a0005-7f3a-4b69-9f33-3a4f8c2c1000';
+  const BLE_LIVE = '7b4a0006-7f3a-4b69-9f33-3a4f8c2c1000';
+  const BLE_POLL_MS = 3000;
   const MAX_SLOTS = 34;
   const $ = id => document.getElementById(id);
   // Algumas versões antigas da página podem coexistir por cache/CDN.
@@ -13,7 +15,7 @@
   function setText(id, value) { const element = $(id); if (element) element.textContent = value ?? '—'; }
   function setClass(id, className, enabled) { const element = $(id); if (element) element.classList.toggle(className, enabled); }
   const state = { config: null, authenticated: false, refreshTimer: 0,
-    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleSchedule: null, bleReading: false, bleConnected: false, bleRefreshTimer: 0,
+    bleDevice: null, bleStatus: null, bleCommand: null, bleAck: null, bleSchedule: null, bleLive: null, bleReading: false, bleKey: '', bleRev: null, bleData: null, bleFailures: 0, bleWanted: false, bleReconnecting: false, bleConnected: false, bleRefreshTimer: 0,
     lastPayload: null, schedulesDirty: false, pendingScheduleCommandId: null, busy: false, toastTimer: 0 };
 
   function toast(message, error = false) {
@@ -38,7 +40,7 @@
   function showApp() { $('loginView').classList.add('hidden'); $('appView').classList.remove('hidden'); }
   function signOut(revoke = true) {
     if (revoke) fetch('/api/logout', { method: 'POST', cache: 'no-store' }).catch(() => {});
-    clearInterval(state.refreshTimer); clearInterval(state.bleRefreshTimer); state.authenticated = false;
+    clearInterval(state.refreshTimer); clearInterval(state.bleRefreshTimer); state.authenticated = false; state.bleKey = ''; state.bleWanted = false;
     if (state.bleDevice?.gatt?.connected) state.bleDevice.gatt.disconnect(); showLogin('');
   }
   function localDate(value) {
@@ -53,6 +55,30 @@
     if (device.manual === true) return 'on';
     if (device.manual === false) return 'auto';
     return null;
+  }
+  // Qualquer dado vindo da placa/nuvem é normalizado antes de ser usado: tipos errados viram "indisponível"
+  // em vez de quebrar a tela (e nada é interpretado como HTML).
+  const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const asBool = v => (typeof v === 'boolean' ? v : undefined);
+  const asNum = v => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const asStr = (v, max = 80) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+  function normalizeSlots(list, limit = 34) {
+    if (!Array.isArray(list)) return undefined;
+    return list.slice(0, limit).filter(slot => slot && typeof slot === 'object' && !Array.isArray(slot)).map(slot => ({
+      used: asBool(slot.used), enabled: slot.enabled === true,
+      start: typeof slot.start === 'string' && HHMM_RE.test(slot.start) ? slot.start : '08:00',
+      stop: typeof slot.stop === 'string' && HHMM_RE.test(slot.stop) ? slot.stop : '08:15'
+    }));
+  }
+  function normalizeDevice(raw) {
+    const d = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    return {
+      pump: asBool(d.pump), relay: asBool(d.relay), low: asBool(d.low), manual: asBool(d.manual), mode: ['off', 'on', 'auto'].includes(d.mode) ? d.mode : undefined,
+      levelSensor: asBool(d.levelSensor), wifi: asBool(d.wifi), apMode: asBool(d.apMode), dhtOk: asBool(d.dhtOk), temp: asNum(d.temp), hum: asNum(d.hum),
+      now: asStr(d.now, 40), date: asStr(d.date, 20), cycles: asNum(d.cycles), totalMin: asNum(d.totalMin), ip: asStr(d.ip, 64), rssi: asNum(d.rssi),
+      timeSynced: asBool(d.timeSynced), cloud: asBool(d.cloud), ble: asBool(d.ble), slots: normalizeSlots(d.slots),
+      history: Array.isArray(d.history) ? d.history.slice(0, 20).filter(e => e && typeof e === 'object').map(e => ({ time: asStr(e.time, 40), text: asStr(e.text, 120) })) : undefined
+    };
   }
   function scheduleIsUsed(slot) {
     if (typeof slot.used === 'boolean') return slot.used;
@@ -183,8 +209,11 @@
     const loopLine = active.length > 1 ? `Ao terminar o último horário (${last.name}, ${last.stopText}), a fila recomeça no ${first.name} (${first.startText}).` : active.length === 1 ? 'Esse horário se repete todos os dias.' : '';
     const hasData = device.pump !== undefined;
     const modeLabel = mode === 'off' ? 'desligado' : mode === 'on' ? 'ligado (manual)' : mode === 'auto' ? 'automático' : 'desconhecido';
+    const newest = (state.lastPayload && state.lastPayload.commands || [])[0];
+    const halted = Boolean(newest && newest.action === 'off' && String(newest.halt) === 'true' && newest.status === 'executed');
     let title = '', text = '', tone = '';
-    if (!hasData) { title = 'Aguardando a ESP32'; text = 'Ainda não chegou nenhum estado do dispositivo. Quando ela se conectar, o que está acontecendo aparece aqui.'; tone = 'warn'; }
+    if (halted && now === null) { title = 'Placa desligada'; text = 'A ESP32 está em modo economia e o relé está desativado. Para ligar de novo, aperte o botão EN/RESET da placa ou desligue e ligue a energia.'; tone = 'warn'; }
+    else if (!hasData) { title = 'Aguardando a ESP32'; text = 'Ainda não chegou nenhum estado do dispositivo. Quando ela se conectar, o que está acontecendo aparece aqui.'; tone = 'warn'; }
     else if (now === null) { title = 'Sem comunicação recente'; text = `Último modo conhecido: ${modeLabel}. Não dá para confirmar o que está rodando agora.`; tone = 'warn'; }
     else if (mode === 'off') { title = 'Sistema desligado'; text = 'Tudo parado: bomba desligada e fila pausada. Toque em Ligar para liberar o modo Automático.'; }
     else if (mode === 'on') {
@@ -237,6 +266,7 @@
   }
   function actionText(command) {
     const names = { on: 'Ligou o sistema · bomba em modo manual', off: 'Desligou o sistema · tudo parado', auto: 'Ativou o modo automático · fila em execução', schedules: 'Salvou a agenda de horários' };
+    if (command.action === 'off' && String(command.halt) === 'true') return 'Desligou a placa ESP32 e o relé · modo economia';
     return names[command.action] || `Comando ${command.action}`;
   }
   function actionResult(command) {
@@ -265,8 +295,35 @@
     if (!events.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Ainda não há eventos recebidos do dispositivo.'; root.appendChild(li); return; }
     events.forEach(event => { const li = document.createElement('li'); const time = document.createElement('time'); time.textContent = event.time || localDate(event.created_at); const text = document.createElement('span'); text.textContent = event.text || event.message || event.action || 'Evento do dispositivo'; li.append(time, text); root.appendChild(li); });
   }
+  // Mensagem do relé: mostra se está ATIVADO (contato fechado) ou DESATIVADO, e avisa se divergir do comando.
+  function updateRelayBox(device, fresh) {
+    let box = $('relayMessage');
+    if (!box) { box = document.createElement('div'); box.id = 'relayMessage'; box.className = 'relay-message'; const anchor = document.querySelector('.pump-controls'); if (!anchor) return; anchor.after(box); }
+    const hasData = device.pump !== undefined;
+    let tone = 'unknown', title = 'Relé: aguardando a ESP32', text = 'Ainda não chegou o estado do relé.';
+    if (hasData && device.relay === undefined) { title = 'Relé: sem informação'; text = 'Atualize o firmware da placa para o painel mostrar o estado do relé.'; }
+    else if (hasData) {
+      const on = device.relay === true, mismatch = device.relay !== device.pump;
+      if (mismatch) { tone = 'warn'; title = 'Relé com divergência'; text = `A bomba foi comandada para ${device.pump ? 'ligada' : 'desligada'}, mas o relé está ${on ? 'ativado' : 'desativado'}. A placa tenta corrigir sozinha.`; }
+      else { tone = on ? 'on' : 'off'; title = on ? 'Relé ATIVADO' : 'Relé DESATIVADO'; text = on ? 'Contato fechado: a bomba está recebendo energia.' : 'Contato aberto: a bomba está sem energia.'; }
+      if (!fresh) { tone = 'unknown'; title += ' (último estado conhecido)'; text = 'Sem comunicação recente com a ESP32: não dá para confirmar o relé agora.'; }
+      else text += ' Estado lido no pino do relé da ESP32.';
+    }
+    box.className = `relay-message ${tone}`;
+    box.replaceChildren();
+    const dot = document.createElement('i'); dot.className = 'relay-dot'; dot.setAttribute('aria-hidden', 'true');
+    const wrap = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = title; const span = document.createElement('span'); span.textContent = text; wrap.append(strong, span);
+    box.append(dot, wrap);
+  }
   function renderStatus(payload, source = 'cloud') {
-    state.lastPayload = payload; const device = payload.device || payload;
+    const raw = payload && typeof payload === 'object' ? payload : {};
+    payload = {
+      ...raw, device: normalizeDevice(raw.device !== undefined ? raw.device : raw),
+      lastSeen: asStr(raw.lastSeen, 40) || asStr(raw.last_seen, 40), events: Array.isArray(raw.events) ? raw.events.filter(e => e && typeof e === 'object') : undefined,
+      commands: Array.isArray(raw.commands) ? raw.commands.filter(c => c && typeof c === 'object') : [],
+      pendingSchedule: raw.pendingSchedule && Array.isArray(raw.pendingSchedule.payload) ? { id: asStr(raw.pendingSchedule.id, 60), payload: normalizeSlots(raw.pendingSchedule.payload) } : null
+    };
+    state.lastPayload = payload; const device = payload.device;
     const receivedAt = payload.lastSeen || payload.last_seen || device.updatedAt || device.updated_at;
     const age = receivedAt ? Date.now() - new Date(receivedAt).getTime() : Infinity;
     const fresh = age < 45000;
@@ -331,6 +388,7 @@
     if (source !== 'ble' && Array.isArray(payload.commands)) renderActions(payload.commands);
     if (payload.pendingCommand) safeText('commandState', `Comando ${payload.pendingCommand.action}: aguardando confirmação do ESP32`);
     else if (source === 'ble') safeText('commandState', 'Conectado diretamente por Bluetooth LE');
+    updateRelayBox(device, fresh);
     updateQueue();
   }
   async function refresh() {
@@ -348,13 +406,29 @@
     finally { setBusy(button, false); }
   }
   function startPolling() { clearInterval(state.refreshTimer); state.refreshTimer = setInterval(refresh, 5000); }
+  // Comandos por Bluetooth exigem a senha do painel local (mesma do acesso pelo IP da placa).
+  // Ela só vai por Bluetooth, fica apenas na memória desta aba e é apagada ao desconectar.
+  function getBleKey() {
+    if (state.bleKey) return state.bleKey;
+    const typed = window.prompt('Digite a senha do painel local da placa (a mesma usada no acesso pelo IP). Ela é enviada só por Bluetooth e não fica salva.');
+    if (!typed) throw new Error('Senha do Bluetooth não informada.');
+    if (typed.length > 64) throw new Error('A senha do Bluetooth deve ter até 64 caracteres.');
+    state.bleKey = typed;
+    return typed;
+  }
   async function sendCommand(action, payload = null) {
-    if (state.busy) return; state.busy = true; const button = document.querySelector(`[data-command="${action}"]`); if (button) setBusy(button, true, 'Enviando…');
+    if (state.busy) return;
+    const buttonName = action;
+    if (action === 'halt') {
+      if (!window.confirm('Desligar a placa ESP32 e o relé?\n\nA bomba para e a placa entra em modo economia. Ela só volta ao apertar o botão EN/RESET ou desligando e ligando a energia.')) return;
+      action = 'off'; payload = { halt: true };
+    } state.busy = true; const button = document.querySelector(`[data-command="${buttonName}"]`); if (button) setBusy(button, true, 'Enviando…');
     try {
       if (action === 'on' && state.lastPayload?.device?.levelSensor === true && state.lastPayload?.device?.low === true) throw new Error('Nível de água baixo: o ESP32 não permitirá ligar a bomba.');
       if (state.bleConnected) {
+        const key = getBleKey();
         const blePayload = action === 'schedules' ? compactSchedule(payload) : payload;
-        const command = { id: crypto.randomUUID(), action, ...(blePayload !== null && blePayload !== undefined ? { payload: blePayload } : {}) };
+        const command = { id: crypto.randomUUID(), action, ...(blePayload !== null && blePayload !== undefined ? { payload: blePayload } : {}), key };
         const result = await bleExclusive(async () => {
           await state.bleCommand.writeValue(new TextEncoder().encode(JSON.stringify(command)));
           for (let attempt = 0; attempt < 20; attempt++) {
@@ -364,6 +438,7 @@
           }
           return null;
         });
+        if (result && /Senha do Bluetooth incorreta/i.test(result.error || '')) state.bleKey = '';
         if (!result || !result.ok) throw new Error(result?.error || 'O ESP32 não confirmou o comando.');
         toast('Comando confirmado pelo ESP32'); await readBleStatus();
       } else {
@@ -406,29 +481,79 @@
     }
     finally { setBusy(button, false); }
   }
+  // Web Bluetooth só aceita UMA operação GATT por vez: tudo (leituras e escritas) passa por esta fila.
+  let bleQueue = Promise.resolve();
+  function bleExclusive(task) { const run = bleQueue.then(task, task); bleQueue = run.catch(() => {}); return run; }
+  function parseLive(text) {
+    const parts = String(text || '').split('|');
+    if (parts.length < 4) return null;
+    return { time: parts[0], temp: parts[1] === '--' ? null : Number(parts[1]), hum: parts[2] === '--' ? null : Number(parts[2]), rev: parts[3] };
+  }
+  const decodeValue = value => new TextDecoder().decode(value.buffer);
+  async function bleAttach(device) {
+    const server = await device.gatt.connect(); const service = await server.getPrimaryService(BLE_SERVICE);
+    state.bleStatus = await service.getCharacteristic(BLE_STATUS); state.bleCommand = await service.getCharacteristic(BLE_COMMAND); state.bleAck = await service.getCharacteristic(BLE_ACK);
+    state.bleSchedule = await service.getCharacteristic(BLE_SCHEDULE).catch(() => null); state.bleLive = await service.getCharacteristic(BLE_LIVE).catch(() => null);
+    state.bleConnected = true; state.bleRev = null; state.bleData = null; state.bleFailures = 0; state.bleReading = false;
+    safeText('bleState', 'Conectado'); safeText('diagBle', device.name || 'Conectado'); $('bleConnect').textContent = 'Desconectar Bluetooth';
+    clearInterval(state.refreshTimer); await readBleStatus(); clearInterval(state.bleRefreshTimer); state.bleRefreshTimer = setInterval(readBleStatus, BLE_POLL_MS);
+  }
+  // Se o Bluetooth cair sozinho (distância, ruído, queda de tensão), tenta reconectar sem pedir de novo o dispositivo.
+  async function bleReconnect(device) {
+    if (state.bleReconnecting) return; state.bleReconnecting = true;
+    const waits = [1200, 2500, 4500, 7000];
+    for (const wait of waits) {
+      if (!state.bleWanted) break;
+      const label = $('remotePill') && $('remotePill').querySelector('span'); if (label) label.textContent = 'Bluetooth reconectando…';
+      await new Promise(resolve => setTimeout(resolve, wait));
+      if (!state.bleWanted) break;
+      try { await bleAttach(device); toast('Bluetooth reconectado.'); state.bleReconnecting = false; return; } catch { /* tenta de novo */ }
+    }
+    state.bleReconnecting = false;
+    if (state.bleWanted) { state.bleWanted = false; toast('Não foi possível reconectar o Bluetooth. Use a conexão pela nuvem ou toque em Conectar por Bluetooth.', true); }
+    safeText('bleState', 'Desconectado'); safeText('diagBle', 'Desconectado'); $('bleConnect').textContent = 'Conectar por Bluetooth'; startPolling(); refresh();
+  }
   async function connectBle() {
     if (!('bluetooth' in navigator)) { toast('Este navegador não oferece Web Bluetooth. Use Chrome/Edge em contexto seguro ou um app BLE compatível.', true); return; }
     try {
       const device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Hidroponia-ESP32' }], optionalServices: [BLE_SERVICE] });
-      state.bleDevice = device; device.addEventListener('gattserverdisconnected', () => { state.bleConnected = false; clearInterval(state.bleRefreshTimer); safeText('bleState', 'Desconectado'); safeText('diagBle', 'Desconectado'); $('bleConnect').textContent = 'Conectar por Bluetooth'; $('remotePill').classList.remove('online'); toast('Bluetooth desconectado.'); startPolling(); });
-      const server = await device.gatt.connect(); const service = await server.getPrimaryService(BLE_SERVICE);
-      state.bleStatus = await service.getCharacteristic(BLE_STATUS); state.bleCommand = await service.getCharacteristic(BLE_COMMAND); state.bleAck = await service.getCharacteristic(BLE_ACK); state.bleSchedule = await service.getCharacteristic(BLE_SCHEDULE).catch(() => null); state.bleConnected = true;
-      safeText('bleState', 'Conectado'); safeText('diagBle', device.name || 'Conectado'); $('bleConnect').textContent = 'Desconectar Bluetooth'; clearInterval(state.refreshTimer); await readBleStatus(); clearInterval(state.bleRefreshTimer); state.bleRefreshTimer = setInterval(readBleStatus, 3000); toast('Conexão BLE estabelecida.');
-    } catch (error) { if (error.name !== 'NotFoundError') toast(error.message || 'Não foi possível conectar por BLE.', true); }
+      state.bleDevice = device; state.bleWanted = true;
+      device.addEventListener('gattserverdisconnected', () => {
+        const unexpected = state.bleWanted; state.bleConnected = false; state.bleKey = ''; clearInterval(state.bleRefreshTimer);
+        safeText('bleState', 'Desconectado'); safeText('diagBle', 'Desconectado'); $('bleConnect').textContent = 'Conectar por Bluetooth'; $('remotePill').classList.remove('online');
+        if (unexpected) { toast('Bluetooth caiu. Tentando reconectar…', true); startPolling(); bleReconnect(device); } else { toast('Bluetooth desconectado.'); startPolling(); }
+      });
+      await bleAttach(device); toast('Conexão BLE estabelecida.');
+    } catch (error) { state.bleWanted = false; if (error.name !== 'NotFoundError') toast(error.message || 'Não foi possível conectar por BLE.', true); }
   }
-  // Web Bluetooth só aceita UMA operação GATT por vez: tudo (leituras e escritas) passa por esta fila.
-  let bleQueue = Promise.resolve();
-  function bleExclusive(task) { const run = bleQueue.then(task, task); bleQueue = run.catch(() => {}); return run; }
   async function readBleStatus() {
     if (!state.bleConnected || state.bleReading) return;
     state.bleReading = true;
     try { await bleExclusive(readBleStatusNow); } finally { state.bleReading = false; }
   }
+  // Leitura leve: a cada 3 s lê só o texto curto "live" (1 pacote, atômico). O status completo e a agenda
+  // só são lidos quando a revisão muda (ou na primeira vez). Falhas isoladas são repetidas em silêncio.
   async function readBleStatusNow() {
-    if (!state.bleConnected) return; try { const value = await state.bleStatus.readValue(); const data = JSON.parse(new TextDecoder().decode(value.buffer)); if (Array.isArray(data.slots)) data.slots = data.slots.map(slot => slot.length >= 4 ? ({ used: Boolean(slot[0]), enabled: Boolean(slot[1]), start: slot[2], stop: slot[3] }) : ({ used: Boolean(slot[0]), enabled: Boolean(slot[0]), start: slot[1], stop: slot[2] })); if (state.bleSchedule) { try { data.slots = parseCompactSchedule(new TextDecoder().decode((await state.bleSchedule.readValue()).buffer)); } catch {} } renderStatus({ device: data, lastSeen: new Date().toISOString(), events: data.history || [] }, 'ble'); $('remotePill').classList.add('online'); $('remotePill').querySelector('span').textContent = 'Bluetooth conectado'; }
-    catch (error) { if (!/already in progress/i.test(error.message || '')) toast(`Falha ao ler o estado BLE: ${error.message}`, true); }
+    if (!state.bleConnected) return;
+    try {
+      let live = null;
+      if (state.bleLive) live = parseLive(decodeValue(await state.bleLive.readValue()));
+      if (!live || live.rev !== state.bleRev || !state.bleData) {
+        const data = JSON.parse(decodeValue(await state.bleStatus.readValue()));
+        if (Array.isArray(data.slots)) data.slots = data.slots.map(slot => slot.length >= 4 ? ({ used: Boolean(slot[0]), enabled: Boolean(slot[1]), start: slot[2], stop: slot[3] }) : ({ used: Boolean(slot[0]), enabled: Boolean(slot[0]), start: slot[1], stop: slot[2] }));
+        if (state.bleSchedule) { try { data.slots = parseCompactSchedule(decodeValue(await state.bleSchedule.readValue())); } catch { /* mantém o que já tinha */ } }
+        state.bleData = data; state.bleRev = live ? live.rev : null;
+      }
+      const data = { ...state.bleData };
+      if (live) { data.now = live.time !== '--:--:--' ? `${state.bleData.date ? state.bleData.date + ' ' : ''}${live.time}` : ''; data.temp = live.temp; data.hum = live.hum; }
+      state.bleFailures = 0;
+      renderStatus({ device: data, lastSeen: new Date().toISOString(), events: data.history || [] }, 'ble'); $('remotePill').classList.add('online'); $('remotePill').querySelector('span').textContent = 'Bluetooth conectado';
+    } catch (error) {
+      state.bleFailures += 1; state.bleRev = null;   // na próxima leitura relê o status completo
+      if (state.bleFailures >= 3 && !/already in progress/i.test(error.message || '')) { toast(`Bluetooth instável: ${error.message}. Tentando de novo…`, true); state.bleFailures = 0; }
+    }
   }
-  async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleDevice.gatt.disconnect(); return; } await connectBle(); }
+  async function toggleBle() { if (state.bleDevice?.gatt?.connected) { state.bleWanted = false; state.bleDevice.gatt.disconnect(); return; } await connectBle(); }
 
   document.addEventListener('DOMContentLoaded', async () => {
     $('loginForm').addEventListener('submit', signIn); $('logoutButton').addEventListener('click', signOut); $('scheduleForm').addEventListener('submit', saveSchedule); $('addSchedule').addEventListener('click', addSchedule); { const sortButton = document.createElement('button'); sortButton.type = 'button'; sortButton.id = 'sortSchedule'; sortButton.className = 'button secondary'; sortButton.textContent = 'Ordenar a partir das 08:00'; sortButton.addEventListener('click', sortSchedulesFrom8); $('addSchedule').before(sortButton); } renderSchedules([]); setInterval(updateQueue, 1000);

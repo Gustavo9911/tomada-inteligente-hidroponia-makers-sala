@@ -54,7 +54,7 @@
           <article id="control" class="pump-panel">
             <div class="pump-copy"><p class="eyebrow">CONTROLE DA BOMBA</p><h2 id="pumpState">Aguardando dados</h2><p id="modeState" class="muted">Modo não confirmado</p></div>
             <div class="pump-symbol" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 28h7l5-12h10l5 12h5M13 28v8h22v-8M19 16V9h10v7M24 9V5"/></svg></div>
-            <div class="pump-controls"><button class="button pump-on" data-command="on"><span>▶</span> Ligar</button><button class="button pump-off" data-command="off"><span>⏻</span> Desligar</button><button class="button pump-auto" data-command="auto">Automático</button></div>
+            <div class="pump-controls"><button class="button pump-on" data-command="on"><span>▶</span> Ligar</button><button class="button pump-off" data-command="off"><span>⏻</span> Desligar</button><button class="button pump-auto" data-command="auto">Automático</button><button class="button pump-halt" data-command="halt" title="Desliga a placa ESP32 e o relé (modo economia)">Desligar placa</button></div>
             <div class="pump-meta"><span id="controlMode">Modo automático</span><span id="freshness">Sem atualização</span></div>
             <p class="inline-warning hidden" id="lowWaterWarning">Nível de água baixo. A partida está bloqueada.</p>
             <span id="commandState" class="command-note">Nenhum comando pendente</span>

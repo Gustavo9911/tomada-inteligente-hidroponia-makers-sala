@@ -63,3 +63,18 @@
 .act-tag.ok{border-color:#146951;background:#0d392f;color:#56ddb2}
 .act-tag.bad{border-color:#833d58;background:#401d35;color:#ff91a9}
 .act-tag.wait{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
+
+/* Mensagem do relé */
+.relay-message{position:relative;z-index:1;display:flex;align-items:center;gap:11px;margin:0 0 12px;padding:10px 13px;border:1px solid #2a3b66;border-radius:10px;background:#0b1430;color:#c9d4ef;font-size:.7rem;line-height:1.5}
+.relay-message strong{display:block;color:#f2f5ff;font-size:.78rem;letter-spacing:.01em}
+.relay-dot{flex:0 0 auto;width:12px;height:12px;border-radius:50%;background:#5b6a8f;box-shadow:0 0 0 3px #5b6a8f33}
+.relay-message.on{border-color:#146951;background:linear-gradient(90deg,#0d392f,#0b1830);color:#d9fff3}
+.relay-message.on .relay-dot{background:#22d19a;box-shadow:0 0 0 3px #22d19a40,0 0 12px #22d19a99}
+.relay-message.off .relay-dot{background:#6f7fa6;box-shadow:0 0 0 3px #6f7fa633}
+.relay-message.warn{border-color:#833d58;background:#2b1320;color:#ffb3c4}
+.relay-message.warn .relay-dot{background:#ff7b9c;box-shadow:0 0 0 3px #ff7b9c40}
+.relay-message.unknown{border-color:#7a5a24;background:#2b2113;color:#f1c57c}
+.relay-message.unknown .relay-dot{background:#e0b25a;box-shadow:0 0 0 3px #e0b25a40}
+
+.pump-controls .pump-halt{background:#2a1520;border:1px solid #833d58;color:#ffb3c4}
+.pump-controls .pump-halt:hover{background:#3a1b2b}

@@ -1,17 +1,20 @@
 const { randomUUID } = require('node:crypto');
-const { json, fail, method, db, env, userAuth } = require('../lib/api');
+const { json, fail, method, db, env, userAuth, guardOrigin } = require('../lib/api');
 
 function validSlots(slots) {
   return Array.isArray(slots) && slots.length === 34 && slots.every(s => s && typeof s.enabled === 'boolean' && (s.used === undefined || typeof s.used === 'boolean') && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(s.stop) && (s.used === false || s.start !== s.stop));
 }
 module.exports = async (req, res) => {
   if (!method(req, res, 'POST')) return;
+  if (!guardOrigin(req, res)) return;
   try {
     const user = await userAuth(req, res); if (!user) return;
     const { action, payload, idempotencyKey } = req.body || {};
     const allowed = ['on', 'off', 'auto', 'schedules'];
     if (!allowed.includes(action) || (action === 'schedules' && !validSlots(payload))) return fail(res, 400, 'Comando ou programação inválida.');
-    if (action !== 'schedules' && payload != null) return fail(res, 400, 'O comando não aceita payload.');
+    // Único payload permitido fora da agenda: {halt:true} no "off" (desligar a placa ESP32 e o relé).
+    const haltOnly = action === 'off' && payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && payload.halt === true;
+    if (action !== 'schedules' && payload != null && !haltOnly) return fail(res, 400, 'O comando não aceita payload.');
     const key = typeof idempotencyKey === 'string' && /^[0-9a-f-]{36}$/i.test(idempotencyKey) ? idempotencyKey : randomUUID();
     const previous = await db(`commands?idempotency_key=eq.${encodeURIComponent(key)}&select=id,status&limit=1`);
     if (previous.length) return json(res, 200, { ...previous[0], message: 'Solicitação já registrada anteriormente.' });
